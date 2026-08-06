@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+.turbo/
+*.log
+.env
+.env.*
+!.env.example
+
+# Per-machine compose tweaks (host port remaps etc.) — never shared.
+docker-compose.override.yml
+docker-compose.override.yaml
+.DS_Store
+.expo/
+*.tsbuildinfo
+.pnpm-store/

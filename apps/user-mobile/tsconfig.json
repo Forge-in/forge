@@ -1,0 +1,10 @@
+{
+  // Array extends: repo-wide strictness first, then Expo's RN-specific settings
+  // (jsx, bundler resolution, lib) which must win on the keys they define.
+  "extends": ["../../tsconfig.base.json", "expo/tsconfig.base"],
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "declaration": false
+  }
+}
