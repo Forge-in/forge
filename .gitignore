@@ -1,19 +1,79 @@
+# Repo-wide ignores.
+#
+# The root owns everything cross-cutting; package-level .gitignore files only add
+# what is specific to that package (Next's .next/, Expo's native folders...).
+# Patterns without a leading slash match at any depth, which is what makes one
+# file enough for every workspace.
+
+# ─── Dependencies ────────────────────────────────────────────────────────────
 node_modules/
+.pnpm-store/
+
+# ─── Build output ────────────────────────────────────────────────────────────
 dist/
 build/
-.next/
 out/
-coverage/
+.next/
+.expo/
+web-build/
+
+# ─── Caches ──────────────────────────────────────────────────────────────────
 .turbo/
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# ─── Test output ─────────────────────────────────────────────────────────────
+coverage/
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
 *.log
+
+# ─── Environment ─────────────────────────────────────────────────────────────
+# Real values never leave the machine; the committed example is the contract.
 .env
 .env.*
 !.env.example
+!.env*.example
 
+# ─── Secrets and credentials ─────────────────────────────────────────────────
+# Nothing holding a private key gets committed by accident. A deliberate test
+# fixture can still be added with `git add -f`.
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+id_rsa*
+id_ed25519*
+*.ppk
+
+# ─── Local infrastructure ────────────────────────────────────────────────────
 # Per-machine compose tweaks (host port remaps etc.) — never shared.
 docker-compose.override.yml
 docker-compose.override.yaml
+
+# ─── Editors ─────────────────────────────────────────────────────────────────
+.idea/
+*.swp
+*.swo
+# Shared workspace config is committed; anything else under .vscode is personal.
+# The glob must be `.vscode/*`, not `.vscode/` — Git cannot re-include a file
+# whose parent directory is excluded.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
 .DS_Store
-.expo/
-*.tsbuildinfo
-.pnpm-store/
+._*
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.stackdump

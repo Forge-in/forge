@@ -1,20 +1,25 @@
-# Forge — monorepo starter
+# Forge — monorepo
 
 One product, four clients, one multi-tenant NestJS backend. pnpm + Turborepo.
 
 ```
 forge/
 ├─ apps/
-│  ├─ api          # NestJS backend (the ONLY backend)
-│  ├─ admin        # Next.js  – platform admin dashboard
-│  ├─ owner-web    # Next.js  – gym owner dashboard
-│  ├─ owner-mobile # Expo RN  – owner + trainer app
-│  └─ user-mobile  # Expo RN  – gym user app
+│  ├─ api             @forge/api            NestJS backend (the ONLY backend)
+│  ├─ admin           @forge/admin          Next.js  – platform admin dashboard
+│  ├─ owner-web       @forge/owner-web      Next.js  – gym owner dashboard
+│  ├─ trainer-mobile  @forge/trainer-mobile Expo RN  – trainer app
+│  └─ user-mobile     @forge/user-mobile    Expo RN  – gym user app
 ├─ packages/
-│  └─ shared        # types, zod schemas, roles — imported by everyone
+│  ├─ shared          @forge/shared         types, zod schemas, roles — imported by everyone
+│  ├─ tsconfig        @forge/tsconfig       TypeScript presets, one per runtime
+│  └─ eslint-config   @forge/eslint-config  ESLint presets, one per runtime
 ├─ docker-compose.yml   # postgres + redis + minio (local infra)
 └─ turbo.json
 ```
+
+Every workspace package is scoped `@forge/*`, so `pnpm --filter @forge/api …`
+is unambiguous and nothing can collide with a public package name.
 
 ## 0. Prerequisites
 
@@ -22,8 +27,8 @@ forge/
 - pnpm 9 (`corepack enable && corepack prepare pnpm@9 --activate`)
 - Docker Desktop
 
-> If `corepack enable` fails with `EPERM ... C:\Program Files\nodejs`, it needs an
-> admin shell to write its shims. Either run it elevated once, or just
+> If `corepack enable` fails with an `EPERM` on the Node install directory, it
+> needs an admin shell to write its shims. Either run it elevated once, or just
 > `npm i -g pnpm@9` — npm's global prefix is per-user and needs no elevation.
 
 ## 1. First run
@@ -52,35 +57,105 @@ services:
 
 Then point the matching URL in `.env` at the new port.
 
-## 2. Generate the apps — done, already committed
+## 2. Folder layout
 
-All five apps exist and are wired up. This section is kept as a record of how
-they were made; you should not need to run any of it again.
+Each app owns the same shape, so moving between them costs nothing.
 
-```bash
-# API
-pnpm dlx @nestjs/cli new apps/api --skip-git --package-manager pnpm
+**`apps/api`** — feature-first. Anything reusable across features goes in
+`common/`; nothing in `modules/` reaches into a sibling module's internals.
 
-# Dashboards
-pnpm create next-app@latest apps/admin --ts --app --eslint --tailwind --src-dir
-pnpm create next-app@latest apps/owner-web --ts --app --eslint --tailwind --src-dir
-
-# Mobile
-pnpm create expo-app apps/owner-mobile
-pnpm create expo-app apps/user-mobile
+```
+src/
+├─ main.ts                 # bootstrap only
+├─ app.module.ts           # composition root: imports feature modules
+├─ config/                 # env schema + typed config providers
+├─ common/                 # cross-cutting: filters, guards, interceptors, decorators
+└─ modules/
+   └─ health/              # one folder per feature: module, controller, service, spec
 ```
 
-Each app's `tsconfig.json` extends `../../tsconfig.base.json` and each declares
-`"@forge/shared": "workspace:*"`. The base config is Node-oriented, so an app
-that needs different module/lib settings overrides just those keys on top:
+**`apps/admin`, `apps/owner-web`** — App Router, with everything that is not a
+route living outside `app/`.
 
-- **api** keeps `emitDecoratorMetadata` / `experimentalDecorators` — without them
-  Nest's DI and validation pipes stop working.
-- **admin / owner-web** override to `moduleResolution: bundler` + DOM libs, and
-  set `transpilePackages: ['@forge/shared']` in `next.config.ts`.
-- **mobile** use array extends — `["../../tsconfig.base.json", "expo/tsconfig.base"]`.
-  Rightmost wins, so Expo's RN settings (jsx, bundler resolution) take
-  precedence while the repo-wide strictness flags still apply.
+```
+src/
+├─ app/                    # routes only — layout.tsx, page.tsx, route groups
+├─ components/ui/          # presentational components
+├─ hooks/                  # client-side React hooks
+├─ lib/                    # framework-free helpers, API calls
+├─ types/                  # app-local types (cross-app types go in @forge/shared)
+└─ styles/globals.css
+```
+
+`@/*` maps to `./src/*`, so import `@/components/ui/button`, never `../../..`.
+
+**`apps/trainer-mobile`, `apps/user-mobile`** — `index.ts` at the app root is the
+Expo entry point and does nothing but register `src/App.tsx`.
+
+```
+src/
+├─ App.tsx                 # root component
+├─ screens/                # one folder per screen
+├─ components/
+├─ hooks/
+└─ lib/
+```
+
+**`packages/shared`** — grouped by domain, not by file type. Add a sibling
+folder per domain (`billing/`, `gyms/`, `sessions/`) and re-export it from
+`src/index.ts`; don't grow flat files at the package root.
+
+```
+src/
+├─ index.ts                # re-exports each domain barrel
+└─ auth/
+   ├─ index.ts
+   ├─ roles.ts             # Role
+   ├─ token.ts             # AuthTokenPayload
+   └─ dto.ts               # zod schemas
+```
+
+Empty convention folders are held in git by a `.gitkeep`. Delete it when the
+folder gets its first real file.
+
+## 3. Shared config
+
+**`@forge/tsconfig`** — apps extend a preset instead of copying compilerOptions:
+
+| preset                              | used by              |
+| ----------------------------------- | -------------------- |
+| `@forge/tsconfig/base.json`         | `@forge/shared`      |
+| `@forge/tsconfig/nest.json`         | `api`                |
+| `@forge/tsconfig/nextjs.json`       | `admin`, `owner-web` |
+| `@forge/tsconfig/react-native.json` | both mobile apps     |
+
+`include` / `exclude` / `outDir` stay in each app, because TypeScript resolves
+those paths relative to the file that declares them.
+
+The mobile apps use array extends —
+`["@forge/tsconfig/react-native.json", "expo/tsconfig.base"]`. Rightmost wins,
+so Expo's RN settings (jsx, bundler resolution) take precedence while the
+repo-wide strictness flags still apply. `expo/tsconfig.base` is listed in the
+app rather than inside `@forge/tsconfig` because it has to resolve from the app.
+
+**`@forge/eslint-config`** — every app's `eslint.config.mjs` is a one-line
+re-export of `base`, `nest`, `next`, or `expo`. Add a rule once, it applies
+everywhere. The `nest` preset is a factory because type-aware linting needs the
+consuming app's directory:
+
+```js
+import { nestConfig } from '@forge/eslint-config/nest';
+export default nestConfig(import.meta.dirname);
+```
+
+The pre-commit hook runs ESLint with `--flag unstable_config_lookup_from_file`
+so a staged file is linted by **its own app's** preset rather than the root one.
+(That flag is the ESLint 10 default; drop it on upgrade.)
+
+`@forge/eslint-config` pins `typescript` itself. Without that pin,
+`typescript-eslint` resolved the TypeScript 6 copy the Expo apps pull in, which
+it does not support, and every type-aware rule silently degraded to
+"type could not be resolved" instead of failing loudly.
 
 ### `@forge/shared` is a built package
 
@@ -90,8 +165,8 @@ TypeScript from `node_modules` at runtime — bundlers can, Node can't. This is
 also why `turbo.json` has `typecheck` and `test` depend on `^build`.
 
 Consequence: **after editing `packages/shared`, rebuild it** or the other apps
-will keep seeing the old types. `pnpm dev` handles this (shared runs
-`tsc --watch`); a one-off is `pnpm --filter @forge/shared build`.
+will keep seeing the old types. A one-off is
+`pnpm --filter @forge/shared build`.
 
 ### Expo-in-monorepo: no longer a gotcha
 
@@ -100,38 +175,33 @@ Earlier notes here said to hand-write `watchFolders` and
 `expo/metro-config` detects the workspace root itself, and Expo's monorepo guide
 now says to _delete_ those fields. The `metro.config.js` in each mobile app is
 just `getDefaultConfig(__dirname)`, kept as the extension point for real
-customisation. Verified: `expo export` bundles `@forge/shared` fine.
+customisation.
 
 If a _native_ build ever fails on pnpm's symlinked layout, the lever is
 `node-linker=hoisted` in `.npmrc` — not Metro config.
 
-### Lint setup
-
-`eslint.config.mjs` at the root covers `packages/*` and the `lint-staged`
-pre-commit hook. Each app brings its own config and that one wins when ESLint
-runs with the app as its cwd: `eslint-config-next` for the dashboards, the
-generated typescript-eslint setup for the API, `eslint-config-expo` for mobile.
-Keep every app's `eslint` on the same major as the root or the shared plugins
-resolve twice.
-
-## 3. Daily commands
+## 4. Daily commands
 
 ```bash
 pnpm dev         # all apps in parallel (turbo)
-pnpm lint
+pnpm lint        # read-only; pnpm lint:fix to apply fixes
 pnpm typecheck
 pnpm test
+pnpm build
+pnpm format:check
 ```
 
 `pnpm dev` ports — fixed rather than auto-assigned, so nothing races for 3000:
 
-| app          | url                   |
-| ------------ | --------------------- |
-| api          | http://localhost:4000 |
-| admin        | http://localhost:3000 |
-| owner-web    | http://localhost:3001 |
-| owner-mobile | Metro on 8081         |
-| user-mobile  | Metro on 8082         |
+| app            | url                   |
+| -------------- | --------------------- |
+| api            | http://localhost:4000 |
+| admin          | http://localhost:3000 |
+| owner-web      | http://localhost:3001 |
+| trainer-mobile | Metro on 8081         |
+| user-mobile    | Metro on 8082         |
+
+`GET http://localhost:4000/health` is the API's liveness probe.
 
 Local infra: Postgres `5432`, MinIO console http://localhost:9001
 (`minioadmin` / `minioadmin`), Redis `6379` — unless you've remapped any of them
@@ -143,6 +213,8 @@ source of truth.
 - **Every tenant-scoped table has `gym_id`.** Postgres RLS enforces it; app code sets it from the JWT, never from client input.
 - **Schema changes = a migration.** Never edit the DB by hand.
 - **Roles/DTOs live in `packages/shared`.** Don't redefine them per app.
+- **Config presets live in `packages/*`.** If you find yourself editing the same
+  tsconfig or ESLint rule in two apps, it belongs in a preset.
 - **Conventional commits** (enforced by commitlint): `feat:`, `fix:`, `chore:` …
 
 ## Branching
