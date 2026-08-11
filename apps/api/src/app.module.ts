@@ -11,6 +11,10 @@ import { CLS_KEYS, REQUEST_ID_HEADER } from './common/request-context';
 import { ForgeConfigModule } from './config/config.module';
 import type { Env } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { RolesGuard } from './common/guards/roles.guard';
+import { AuthModule } from './modules/auth/auth.module';
+import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -47,6 +51,8 @@ import { HealthModule } from './modules/health/health.module';
     }),
 
     DatabaseModule,
+    RedisModule,
+    AuthModule,
 
     /**
      * Global rate-limit floor. OTP request/verify get their own much tighter, phone-keyed
@@ -57,8 +63,16 @@ import { HealthModule } from './modules/health/health.module';
       useFactory: (config: ConfigService<Env, true>) => {
         return {
           throttlers: [
-            { name: 'short', ttl: 1_000, limit: 20 },
-            { name: 'medium', ttl: 60_000, limit: 200 },
+            {
+              name: 'short',
+              ttl: 1_000,
+              limit: config.get('THROTTLE_PER_SECOND', { infer: true }),
+            },
+            {
+              name: 'medium',
+              ttl: 60_000,
+              limit: config.get('THROTTLE_PER_MINUTE', { infer: true }),
+            },
           ],
 
           /**
@@ -89,6 +103,20 @@ import { HealthModule } from './modules/health/health.module';
 
     HealthModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  /**
+   * Guard order is the execution order, and it matters:
+   *   1. Throttler  - reject floods before doing any crypto or database work
+   *   2. JwtAuth    - verify the token and establish tenant context
+   *   3. Roles      - reads request.user, so it must run after JwtAuth
+   *
+   * JwtAuthGuard is global, which makes auth DENY BY DEFAULT: a new controller is
+   * protected the moment it exists, and opening a route requires an explicit @Public().
+   * The inverse leaves every new endpoint public until someone remembers.
+   */
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
 export class AppModule {}

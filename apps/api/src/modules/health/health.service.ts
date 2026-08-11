@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { pingDatabase } from '@forge/db';
-import Redis from 'ioredis';
+import type Redis from 'ioredis';
 
 import type { Env } from '../../config/env.schema';
+import { REDIS } from '../../redis/redis.module';
 
 export interface LivenessStatus {
   status: 'ok';
@@ -37,9 +38,14 @@ export interface ReadinessStatus {
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
-  private redis: Redis | undefined;
 
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    // The shared client, not a second connection of its own. A probe that opened its own
+    // connection would report a healthy Redis while the connection the application
+    // actually uses was broken — the one failure mode readiness exists to catch.
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
 
   /** Dependency-free on purpose — see the class comment. */
   check(): LivenessStatus {
@@ -84,26 +90,12 @@ export class HealthService {
   private async checkRedis(): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
     const started = Date.now();
     try {
-      this.redis ??= new Redis(this.config.get('REDIS_URL', { infer: true }), {
-        // A readiness probe must answer quickly or the orchestrator times it out and draws
-        // its own, less useful conclusion. Never queue behind a reconnect backoff.
-        maxRetriesPerRequest: 1,
-        connectTimeout: 2_000,
-        lazyConnect: true,
-        enableOfflineQueue: false,
-      });
-
-      if (this.redis.status !== 'ready') await this.redis.connect();
       await this.redis.ping();
       return { ok: true, latencyMs: Date.now() - started };
     } catch (error) {
       this.logger.warn({ event: 'readyz.redis_failed', error: describe(error) });
       return { ok: false, latencyMs: Date.now() - started, error: describe(error) };
     }
-  }
-
-  async onApplicationShutdown(): Promise<void> {
-    await this.redis?.quit().catch(() => undefined);
   }
 }
 

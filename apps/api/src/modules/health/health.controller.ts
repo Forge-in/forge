@@ -1,6 +1,7 @@
 import { Controller, Get, HttpCode, HttpStatus, Res, VERSION_NEUTRAL } from '@nestjs/common';
 import type { Response } from 'express';
 
+import { Public } from '../../common/decorators/auth.decorators';
 import { HealthService, type LivenessStatus, type ReadinessStatus } from './health.service';
 
 /**
@@ -16,6 +17,11 @@ import { HealthService, type LivenessStatus, type ReadinessStatus } from './heal
  * routes resolve at `/v1/healthz` and every probe gets a 404 — the container is killed as
  * unhealthy the moment it is deployed.
  */
+/**
+ * @Public on every probe: JwtAuthGuard is global, and an orchestrator has no bearer token.
+ * A 401 on /healthz would make every container look dead the moment auth was enabled.
+ */
+@Public()
 @Controller({ version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}

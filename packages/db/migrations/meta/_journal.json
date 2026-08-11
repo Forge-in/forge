@@ -22,6 +22,13 @@
       "when": 1786480542601,
       "tag": "0002_rls_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786487371528,
+      "tag": "0003_auth_membership_lookup",
+      "breakpoints": true
     }
   ]
 }

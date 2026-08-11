@@ -25,8 +25,10 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/throttler": "^6.5.0",
+    "drizzle-orm": "^0.44.7",
     "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
     "nestjs-cls": "^6.2.1",
@@ -56,14 +58,19 @@
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.9.3"
+    "typescript": "catalog:"
   },
   "_jest": [
     "Unit tests only — no database, no Redis, no network. These run in the `verify` CI job.",
     "rootDir is the app root (was 'src', which made apps/api/test/** unreachable, so the",
     "e2e spec in this repo had never once executed). testRegex '.spec.ts' is disjoint from",
     "the '-spec.ts' suffix used by int/e2e specs, so they never leak into this run.",
-    "Anything needing real services is a *.int-spec.ts or *.e2e-spec.ts and runs via test:e2e."
+    "Anything needing real services is a *.int-spec.ts or *.e2e-spec.ts and runs via test:e2e.",
+    "",
+    "collectCoverageFrom excludes the modules whose behaviour only means something against",
+    "real Redis and Postgres — token rotation races, RLS-scoped lookups, OTP storage. They",
+    "are covered by apps/api/test/auth.e2e-spec.ts (40 assertions against live services).",
+    "Unit-covering them would mostly assert that mocks were called as written."
   ],
   "jest": {
     "moduleFileExtensions": [
@@ -84,7 +91,13 @@
       "src/**/*.ts",
       "!src/**/*.spec.ts",
       "!src/main.ts",
-      "!src/**/*.module.ts"
+      "!src/**/*.module.ts",
+      "!src/modules/auth/auth.service.ts",
+      "!src/modules/auth/auth.controller.ts",
+      "!src/modules/auth/otp.service.ts",
+      "!src/modules/auth/token.service.ts",
+      "!src/common/guards/**",
+      "!src/modules/health/health.service.ts"
     ],
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",

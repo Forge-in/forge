@@ -32,12 +32,11 @@ async function pinStudio(tx: TenantTransaction, studioId: string): Promise<void>
   await tx.execute(sql`select set_config('app.studio_id', ${studioId}, true)`);
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Rejects anything that is not a UUID before it reaches set_config. */
 function assertStudioId(studioId: string): void {
-  if (
-    typeof studioId !== 'string' ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(studioId)
-  ) {
+  if (typeof studioId !== 'string' || !UUID_PATTERN.test(studioId)) {
     throw new Error('withTenant requires a UUID studio id');
   }
 }
@@ -129,6 +128,40 @@ export async function runAsSystem<T>(
     // Explicitly cleared rather than assumed absent: a pooled connection may carry a
     // value from an earlier transaction if anything ever sets it non-locally.
     await tx.execute(sql`select set_config('app.studio_id', '', true)`);
+    return fn(tx);
+  });
+}
+
+/**
+ * Runs with a USER pinned and NO studio, for the one cross-studio read sign-in requires.
+ *
+ * Sign-in has a chicken-and-egg shape: to pin a studio we must first know which studios the
+ * caller belongs to, but `memberships` is tenant-scoped, so an unpinned read denies
+ * everything. This is the narrow, reviewed answer — see migration 0003.
+ *
+ * What it can reach is deliberately tiny: SELECT-only policies covering one user's own
+ * memberships and the names of the studios those memberships are in. No member lists, no
+ * attendance, no billing. Nothing operational crosses a studio boundary.
+ *
+ * It is NOT a general escape hatch. While a studio is pinned those policies are unreachable
+ * (`current_studio_id() IS NULL` is false), so ordinary request handling is unaffected. If
+ * you are reaching for this to work around an inconveniently filtered query, the answer is
+ * withTenant().
+ */
+export async function withUser<T>(
+  userId: string,
+  fn: (tx: TenantTransaction) => Promise<T>,
+): Promise<T> {
+  if (!UUID_PATTERN.test(userId)) {
+    throw new Error('withUser requires a UUID user id');
+  }
+
+  return internalWriteDb().transaction(async (tx) => {
+    // The studio is explicitly cleared, not merely left unset: these policies only apply
+    // with no studio pinned, and a value inherited from a pooled connection would make
+    // this behave as an ordinary tenant-scoped read and silently return nothing.
+    await tx.execute(sql`select set_config('app.studio_id', '', true)`);
+    await tx.execute(sql`select set_config('app.auth_user_id', ${userId}, true)`);
     return fn(tx);
   });
 }

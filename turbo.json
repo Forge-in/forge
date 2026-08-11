@@ -39,7 +39,21 @@
     "test:e2e": {
       "dependsOn": ["build", "^build"],
       "cache": false,
-      "passThroughEnv": ["DATABASE_URL", "DATABASE_READ_URL", "DATABASE_MIGRATION_URL", "REDIS_URL"]
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "DATABASE_READ_URL",
+        "DATABASE_MIGRATION_URL",
+        "REDIS_URL",
+        "NODE_ENV",
+        "JWT_ACCESS_SECRET",
+        "JWT_REFRESH_SECRET",
+        "CORS_ORIGINS",
+        "LOG_LEVEL",
+        "OTP_MAX_PER_PHONE",
+        "OTP_MAX_PER_IP",
+        "THROTTLE_PER_SECOND",
+        "THROTTLE_PER_MINUTE"
+      ]
     },
 
     // Integration tests against a real migrated database. Separate from `test` so a

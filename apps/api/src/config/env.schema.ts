@@ -38,6 +38,18 @@ const strongSecret = z
 /** Accepts "900" or "15m"; TTLs are compared as seconds everywhere downstream. */
 const seconds = z.coerce.number().int().positive();
 
+/**
+ * Treats an empty value as absent.
+ *
+ * `.env` files are full of empty placeholders — `.env.example` ships `MSG91_AUTH_KEY=` so a
+ * developer can see the key exists. Without this, that line is a PRESENT variable holding
+ * "", which fails `.min(1)` and makes `.optional()` useless. The API then refuses to boot
+ * over a variable nobody meant to set, which teaches people to delete lines from
+ * .env.example — and then the real ones go missing too.
+ */
+const optional = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+
 export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -47,13 +59,13 @@ export const envSchema = z
     /** forge_app: owns nothing, NOBYPASSRLS. The only connection the API opens. */
     DATABASE_URL: postgresUrl,
     /** Optional replica for withTenantRead(). Falls back to DATABASE_URL. */
-    DATABASE_READ_URL: postgresUrl.optional(),
+    DATABASE_READ_URL: optional(postgresUrl),
     /**
      * Deliberately NOT read by the API. Declared so the schema documents the full contract
      * and the .env.example drift check has something to compare against; migrations run as
      * a separate release step, and the runtime must not hold DDL credentials.
      */
-    DATABASE_MIGRATION_URL: postgresUrl.optional(),
+    DATABASE_MIGRATION_URL: optional(postgresUrl),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
     // ---- Redis --------------------------------------------------------------------
@@ -66,6 +78,52 @@ export const envSchema = z
     JWT_REFRESH_SECRET: strongSecret,
     JWT_ACCESS_TTL: seconds.default(900),
     JWT_REFRESH_TTL: seconds.default(2_592_000),
+
+    // ---- OTP delivery (MSG91) -----------------------------------------------------
+    // Optional here and required in production by the superRefine below, because DLT
+    // approval takes 1-3 weeks and every other part of auth has to be buildable meanwhile.
+    // Without credentials outside production, codes are logged instead of sent.
+    MSG91_AUTH_KEY: optional(z.string().min(1)),
+    MSG91_OTP_TEMPLATE_ID: optional(z.string().min(1)),
+    MSG91_SENDER_ID: optional(z.string()),
+
+    /**
+     * OTP abuse limits, configurable rather than hardcoded.
+     *
+     * Two reasons. Operationally, these are the dial you reach for during an attack or when
+     * a legitimate pattern turns out to be tighter than expected — and needing a deploy to
+     * turn it means the attack wins for however long the pipeline takes.
+     *
+     * Practically, the per-IP limit made the test suite untestable: every request in CI
+     * comes from 127.0.0.1, so the eleventh call blocked everything after it. A security
+     * control that cannot be exercised is one nobody notices breaking.
+     *
+     * Defaults are the production values. The per-phone limit stays small in tests, since
+     * each test uses a fresh number and that is the limit worth exercising end to end.
+     */
+    OTP_MAX_PER_PHONE: z.coerce.number().int().positive().default(3),
+    OTP_MAX_PER_IP: z.coerce.number().int().positive().default(10),
+
+    /**
+     * Global request floor, per IP. Same reasoning as the OTP limits: an operational dial
+     * that must not require a deploy to turn, and a control that has to stay exercisable.
+     *
+     * These are NOT disabled in tests. A limiter that switches itself off in every test
+     * environment is one that can break silently — the suite simply runs with headroom.
+     */
+    THROTTLE_PER_SECOND: z.coerce.number().int().positive().default(20),
+    THROTTLE_PER_MINUTE: z.coerce.number().int().positive().default(200),
+
+    /**
+     * A phone number that accepts a fixed code, for App Store and Play review.
+     *
+     * Reviewers sit outside India and cannot receive an Indian SMS, which is a common and
+     * genuinely surprising cause of rejection for OTP-only apps. Both variables must be set
+     * together, the number must be a real one we control, and production is expected to
+     * carry it deliberately rather than by accident — hence it is logged loudly at boot.
+     */
+    DEMO_PHONE: optional(z.string()),
+    DEMO_OTP: optional(z.string().regex(/^\d{6}$/)),
 
     // ---- HTTP ---------------------------------------------------------------------
     /**
@@ -116,6 +174,31 @@ export const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['CORS_ORIGINS'],
         message: 'contains a localhost origin in production',
+      });
+    }
+
+    /**
+     * Production must be able to actually deliver a code. Without this the API starts
+     * healthy, every dashboard is green, and nobody can sign in — the failure only shows up
+     * as users quietly not arriving.
+     */
+    if (env.NODE_ENV === 'production' && (!env.MSG91_AUTH_KEY || !env.MSG91_OTP_TEMPLATE_ID)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MSG91_AUTH_KEY'],
+        message:
+          'MSG91_AUTH_KEY and MSG91_OTP_TEMPLATE_ID are both required in production — ' +
+          'phone OTP is the only way in, so an unconfigured gateway means nobody can log in',
+      });
+    }
+
+    // Half-configured is worse than either: a DEMO_PHONE with no code silently does
+    // nothing, and a DEMO_OTP with no phone number is an unbound backdoor.
+    if (Boolean(env.DEMO_PHONE) !== Boolean(env.DEMO_OTP)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DEMO_PHONE'],
+        message: 'DEMO_PHONE and DEMO_OTP must be set together, or not at all',
       });
     }
   });

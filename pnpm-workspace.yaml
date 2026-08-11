@@ -1,3 +1,16 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# Versions declared once and referenced as `"typescript": "catalog:"`.
+#
+# TypeScript is here because the split it had was actively dangerous, not merely untidy:
+# the two Expo apps pinned ~6.0.3 while everything else used ^5.9.3, and typescript-eslint
+# resolved the TS 6 copy — which it does not support — so every type-aware rule silently
+# degraded to "type could not be resolved" instead of failing loudly. `packages/eslint-config`
+# still pins typescript directly as a second line of defence against exactly that.
+#
+# Verified before aligning: Expo 57 declares no TypeScript peer dependency, and both mobile
+# apps typecheck cleanly on 5.9.3. The 6.0.3 pin was only what create-expo-app scaffolded.
+catalog:
+  typescript: ^5.9.3

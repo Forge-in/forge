@@ -122,6 +122,15 @@ jobs:
       NODE_ENV: test
       LOG_LEVEL: warn
 
+      # Headroom, not disablement. Every request in CI comes from 127.0.0.1, so the
+      # production per-IP limits would block the suite after ten OTP requests — a
+      # security control that cannot be exercised is one nobody notices breaking. The
+      # per-phone limit stays at its default and IS asserted end to end, because each
+      # test uses a fresh number.
+      OTP_MAX_PER_IP: '100000'
+      THROTTLE_PER_SECOND: '10000'
+      THROTTLE_PER_MINUTE: '100000'
+
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup

@@ -13,6 +13,7 @@ export {
   withTenantRead,
   runAs,
   runAsSystem,
+  withUser,
   setSystemAuditLogger,
   takeFirst,
   takeFirstOrThrow,

@@ -1,15 +1,37 @@
 {
   "extends": "@forge/tsconfig/base.json",
   "compilerOptions": {
-    // Emitted as CommonJS so every consumer can use it unchanged: the NestJS
-    // API (CJS at runtime), Next.js, and Metro. See README "Why shared is built".
-    "module": "CommonJS",
-    "moduleResolution": "Node10",
+    /**
+     * Node16 resolution, NOT Node10 — and this is load-bearing rather than a style choice.
+     *
+     * Drizzle's inferred table types are enormous structural types, so the emitted .d.ts
+     * references drizzle's own modules by specifier. Under Node10 resolution TypeScript
+     * writes those as file paths — `drizzle-orm/pg-core/table.js` — but drizzle's package
+     * exports map only publishes `./pg-core/table`, without the extension.
+     *
+     * apps/api resolves with `nodenext`, where a specifier that does not match an exports
+     * key simply does not resolve. Combined with `skipLibCheck: true` (which suppresses
+     * errors *inside* .d.ts files) the failure is completely silent: every Drizzle entity
+     * degrades to `any` in the API, `tsc --noEmit` still passes, and the type safety this
+     * whole schema exists to provide is gone with nothing to show for it.
+     *
+     * It was the type-aware lint rules that surfaced it — "Unsafe member access .id on a
+     * type that cannot be resolved" — which is the concrete payoff of keeping them on.
+     *
+     * Output stays CommonJS: with module node16 and no `"type": "module"` in package.json,
+     * TypeScript emits CJS, which is what `node dist/main` in the API requires.
+     */
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "outDir": "dist",
     "rootDir": "src"
   },
-  // Tests sit next to the code they cover, but they must never reach dist/ — this is a
-  // published-shape package and consumers resolve through exports -> dist/index.js.
+  /**
+   * Tests sit next to the code they cover and must never reach dist/. `*.int-test.ts` needs
+   * its own entry: the original pattern matched only `*.test.ts`, so the integration suite —
+   * which imports vitest and opens a database connection — was being compiled into the
+   * published output of a package the API loads at runtime.
+   */
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.int-test.ts"]
 }

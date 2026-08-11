@@ -122,8 +122,36 @@ describe('validateEnv', () => {
           ...validEnv(),
           NODE_ENV: 'production',
           CORS_ORIGINS: 'https://admin.forge.in',
+          // Production must be able to actually deliver a code — see the MSG91 guard.
+          MSG91_AUTH_KEY: 'real-key',
+          MSG91_OTP_TEMPLATE_ID: 'real-template',
         }),
       ).not.toThrow();
+    });
+
+    /**
+     * Without a gateway the API starts healthy, every dashboard is green, and nobody can
+     * sign in — the failure shows up only as users quietly not arriving.
+     */
+    it('refuses to start in production with no OTP gateway configured', () => {
+      expect(() =>
+        validateEnv({
+          ...validEnv(),
+          NODE_ENV: 'production',
+          CORS_ORIGINS: 'https://admin.forge.in',
+        }),
+      ).toThrow(/MSG91_AUTH_KEY/);
+    });
+
+    it('treats an empty string as absent, the way .env.example ships it', () => {
+      // MSG91_AUTH_KEY= is a PRESENT variable holding "", which would fail .min(1).
+      expect(() => validateEnv({ ...validEnv(), MSG91_AUTH_KEY: '' })).not.toThrow();
+    });
+
+    it('rejects a half-configured demo account', () => {
+      // A DEMO_PHONE with no code does nothing; a DEMO_OTP with no phone is an unbound backdoor.
+      expect(() => validateEnv({ ...validEnv(), DEMO_PHONE: '+919000000000' })).toThrow(/together/);
+      expect(() => validateEnv({ ...validEnv(), DEMO_OTP: '123456' })).toThrow(/together/);
     });
   });
 

@@ -30,7 +30,7 @@
     "@forge/tsconfig": "workspace:*",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.5",
-    "typescript": "^5.9.3",
+    "typescript": "catalog:",
     "vitest": "^4.1.10"
   }
 }

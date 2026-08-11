@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { Response } from 'express';
 
 import { HealthController } from './health.controller';
+import { REDIS } from '../../redis/redis.module';
 import { HealthService, type ReadinessStatus } from './health.service';
 
 describe('HealthController', () => {
@@ -18,6 +19,8 @@ describe('HealthController', () => {
       providers: [
         HealthService,
         { provide: ConfigService, useValue: { get: (key: string) => configValues[key] } },
+        // Liveness must not touch it; readiness is asserted through a stubbed service.
+        { provide: REDIS, useValue: { ping: jest.fn().mockResolvedValue('PONG') } },
       ],
     }).compile();
 
