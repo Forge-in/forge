@@ -148,9 +148,15 @@ import { nestConfig } from '@forge/eslint-config/nest';
 export default nestConfig(import.meta.dirname);
 ```
 
-The pre-commit hook runs ESLint with `--flag unstable_config_lookup_from_file`
-so a staged file is linted by **its own app's** preset rather than the root one.
-(That flag is the ESLint 10 default; drop it on upgrade.)
+The pre-commit hook runs ESLint with `--flag v10_config_lookup_from_file` so a
+staged file is linted by **its own app's** preset rather than the root one.
+(That flag is the ESLint 10 default; drop it on upgrade. It was renamed from
+`unstable_config_lookup_from_file` when it stabilised — the old name still parses
+but emits an inactive-flag warning on every commit.)
+
+The root preset also grants Node globals to `scripts/**` and `*.config.*` files.
+Without that, `no-undef` flags every `console` and `process` in a build script,
+because those files are the only ones in the repo with no app runtime of their own.
 
 `@forge/eslint-config` pins `typescript` itself. Without that pin,
 `typescript-eslint` resolved the TypeScript 6 copy the Expo apps pull in, which

@@ -13,10 +13,10 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "lint:fix": "eslint \"{src,test}/**/*.ts\" --fix",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "jest",
+    "test": "jest --coverage",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand"
   },
   "dependencies": {
     "@forge/shared": "workspace:*",
@@ -33,11 +33,11 @@
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
     "@types/express": "^5.0.0",
-    "@types/jest": "^30.0.0",
+    "@types/jest": "^29.5.14",
     "@types/node": "^24.0.0",
     "@types/supertest": "^7.0.0",
     "eslint": "^9.39.5",
-    "jest": "^30.0.0",
+    "jest": "^29.7.0",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
@@ -46,21 +46,43 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3"
   },
+  "_jest": [
+    "Unit tests only — no database, no Redis, no network. These run in the `verify` CI job.",
+    "rootDir is the app root (was 'src', which made apps/api/test/** unreachable, so the",
+    "e2e spec in this repo had never once executed). testRegex '.spec.ts' is disjoint from",
+    "the '-spec.ts' suffix used by int/e2e specs, so they never leak into this run.",
+    "Anything needing real services is a *.int-spec.ts or *.e2e-spec.ts and runs via test:e2e."
+  ],
   "jest": {
     "moduleFileExtensions": [
       "js",
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": ".",
+    "roots": [
+      "<rootDir>/src",
+      "<rootDir>/test"
+    ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.ts",
+      "!src/**/*.spec.ts",
+      "!src/main.ts",
+      "!src/**/*.module.ts"
     ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "coverageDirectory": "./coverage",
+    "testEnvironment": "node",
+    "coverageThreshold": {
+      "global": {
+        "lines": 40,
+        "statements": 40,
+        "branches": 30,
+        "functions": 40
+      }
+    }
   }
 }

@@ -2,25 +2,126 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Only collapse superseded PR runs. A push to main may be mid-deploy, and cancelling
+  # that run leaves you unable to tell whether main is green.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege by default; jobs opt into more where they need it.
+permissions:
+  contents: read
 
 jobs:
+  # One job rather than four. Turbo already parallelises across workspaces, so splitting
+  # would pay `pnpm install` four times to save a few seconds. `--continue` means a lint
+  # failure does not hide a typecheck failure — you get every problem in one run.
   verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
+
+      # `build` is the addition that matters most. `tsc --noEmit` does not catch Next.js
+      # RSC boundary violations, misplaced "use client", or invalid route exports — a PR
+      # could be fully green here and still fail to build.
+      - run: pnpm turbo run lint typecheck test build --continue
+
+      # `turbo run lint` only reaches workspaces. These are the files outside all of
+      # them — including the guardrail scripts the `guardrails` job depends on.
+      - run: pnpm lint:repo
+
+      # Root-level and repo-wide, so it is a plain script rather than a turbo task.
+      # Prevents the Prettier churn on untouched lines that makes review useless.
+      - run: pnpm format:check
+
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
+          name: coverage
+          path: '**/coverage/lcov.info'
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Structural invariants that a linter cannot express. Fast, no services, no build.
+  guardrails:
+    name: Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Every workspace must declare lint/typecheck/test, and a placeholder test script is
+      # rejected. This is what stops `turbo run test` from silently skipping a workspace —
+      # the failure mode that made CI green while one assertion ran.
+      - run: node scripts/check-workspace-scripts.mjs
+
+      # `exports`/`files` paths must resolve. Catches the phantom-subpath class of bug
+      # that shipped in @forge/theme. Needs the build so dist/ targets are checkable.
+      - run: pnpm build
+      - run: node scripts/check-package-files.mjs
+
+  # Split from `verify` because this is where anything needing real infrastructure runs.
+  # Today that is only the /health suite, which is deliberately dependency-free.
+  #
+  # Phase B adds to THIS job, in order: postgres + redis `services:`, `migrate:up`,
+  # `scripts/db/assert-tenancy.sql`, an up -> down -> up rollback proof, and the
+  # cross-tenant isolation spec. Row-level security is database behaviour, so this job is
+  # the only place tenant isolation can ever actually be proven. Services are not declared
+  # yet on purpose — no code reads DATABASE_URL, so containers would be pure cost.
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Until the jest rootDir fix, this suite existed but was unreachable and had never
+      # executed. It runs here so that stays true.
+      - run: pnpm turbo run test:e2e
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers what was committed previously, not just the
+          # tip. Secret hygiene in this repo is currently clean; this keeps it that way.
+          fetch-depth: 0
+
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Blocks a lockfile bump that pulls in a known-vulnerable transitive dependency.
+      # PR-only: it diffs against the base ref, so there is nothing to compare on push.
+      - name: Review dependency changes
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  # Squash-merge uses the PR TITLE as the commit message, which bypasses the commit-msg
+  # commitlint hook entirely. Without this check, main's history drifts out of Conventional
+  # Commits and any future changelog generation silently produces garbage.
+  pr-title:
+    name: PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Lint the PR title as a conventional commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: echo "$PR_TITLE" | pnpm commitlint

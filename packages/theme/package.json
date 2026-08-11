@@ -11,11 +11,9 @@
   "exports": {
     ".": "./theme.css",
     "./theme.css": "./theme.css",
-    "./tokens": "./tokens.json",
     "./package.json": "./package.json"
   },
   "files": [
-    "theme.css",
-    "tokens.json"
+    "theme.css"
   ]
 }

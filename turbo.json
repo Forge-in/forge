@@ -1,11 +1,37 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": [".env"],
+
+  // `.env` is git-ignored, so it does not exist in CI. Listing it here meant local and CI
+  // could never share a cache entry, and every local secret tweak invalidated every task.
+  // `.env.example` is the committed contract, so hashing that is both meaningful and portable.
+  "globalDependencies": [".env.example", ".nvmrc"],
+  "globalPassThroughEnv": ["CI", "TURBO_TOKEN", "TURBO_TEAM"],
+
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**"] },
-    "dev": { "cache": false, "persistent": true },
-    "lint": {},
+    "build": {
+      "dependsOn": ["^build"],
+      // .next/cache is a local incremental-build artifact. Without this exclusion it gets
+      // uploaded to the remote cache on every run — slow, large, and useless to other machines.
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+
+    // `dev` depends on `^build` so `@forge/shared` is compiled before anything consumes it.
+    // This is the fix for the stale-dist footgun in README § "@forge/shared is a built package":
+    // running a single app filtered used to leave clients type-checking against an old dist.
+    "dev": { "dependsOn": ["^build"], "cache": false, "persistent": true },
+
+    // The nest ESLint preset uses type-aware rules (recommendedTypeChecked). Without
+    // @forge/shared/dist present, those rules silently degrade to "type could not be resolved"
+    // rather than failing loudly — the exact failure the README documents for typecheck/test.
+    "lint": { "dependsOn": ["^build"] },
+    "lint:fix": { "dependsOn": ["^build"], "cache": false },
+
     "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"], "outputs": ["coverage/**"] }
+
+    "test": { "dependsOn": ["^build"], "outputs": ["coverage/**"] },
+
+    // Needs its own app built (not just dependencies) because it boots the real Nest app
+    // against real Postgres/Redis. Never cached: the result depends on external services.
+    "test:e2e": { "dependsOn": ["build", "^build"], "cache": false }
   }
 }

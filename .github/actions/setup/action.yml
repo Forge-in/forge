@@ -1,0 +1,24 @@
+name: Setup
+description: Checkout-adjacent toolchain setup — pnpm, Node and a warm install. Used by every CI job.
+
+runs:
+  using: composite
+  steps:
+    # pnpm/action-setup MUST run before setup-node: `cache: pnpm` needs the pnpm binary
+    # on PATH to resolve the store directory, and fails outright if it is missing.
+    #
+    # Deliberately no `version:` input. The version comes from `packageManager` in the root
+    # package.json, which is the single source of truth. Passing both is what broke CI twice
+    # already (commits a9729bb and d1a0e3b) — action-setup errors on the conflict.
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+
+    # --frozen-lockfile makes an out-of-date lockfile a hard failure rather than a silent
+    # resolution change, so CI can never install a dependency tree the committed lockfile
+    # does not describe.
+    - run: pnpm install --frozen-lockfile
+      shell: bash
