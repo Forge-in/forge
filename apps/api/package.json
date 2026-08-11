@@ -21,6 +21,7 @@
   "dependencies": {
     "@forge/db": "workspace:^",
     "@forge/shared": "workspace:*",
+    "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

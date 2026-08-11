@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
@@ -48,30 +49,42 @@ import { HealthModule } from './modules/health/health.module';
     DatabaseModule,
 
     /**
-     * Rate limiting, Redis-backed rather than in-memory.
-     *
-     * The default in-process store resets on every deploy and counts per container, so with
-     * two instances a caller simply gets double the allowance. For OTP that is not a
-     * throttling inconvenience — it is real SMS money and an account-enumeration budget.
-     *
-     * These are global defaults. OTP request/verify get their own much tighter, phone-keyed
-     * limits when the auth module lands; this is the floor that protects everything else.
+     * Global rate-limit floor. OTP request/verify get their own much tighter, phone-keyed
+     * limits when the auth module lands; these protect everything else in the meantime.
      */
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => ({
-        throttlers: [
-          { name: 'short', ttl: 1_000, limit: 20 },
-          { name: 'medium', ttl: 60_000, limit: 200 },
-        ],
-        // Probes are polled every few seconds by the orchestrator forever; throttling them
-        // would take instances out of the load balancer under perfectly normal operation.
-        skipIf: (context) => {
-          const path = context.switchToHttp().getRequest<{ url?: string }>().url ?? '';
-          return path === '/healthz' || path === '/readyz' || path === '/health';
-        },
-        ...(config.get('NODE_ENV', { infer: true }) === 'test' ? { skipIf: () => true } : {}),
-      }),
+      useFactory: (config: ConfigService<Env, true>) => {
+        return {
+          throttlers: [
+            { name: 'short', ttl: 1_000, limit: 20 },
+            { name: 'medium', ttl: 60_000, limit: 200 },
+          ],
+
+          /**
+           * Redis, not the default in-process store. The default counts per container and
+           * resets on every deploy, so with two instances a caller simply gets double the
+           * allowance and a rolling restart clears everyone's budget. For OTP that is not
+           * a throttling inconvenience — it is real SMS spend and an account-enumeration
+           * budget that resets whenever we ship.
+           */
+          storage: new ThrottlerStorageRedisService(config.get('REDIS_URL', { infer: true })),
+
+          /**
+           * Probes only. Deliberately NOT disabled under NODE_ENV=test: a feature that
+           * switches itself off in every test environment can never be tested, and rate
+           * limiting is exactly the kind of thing that quietly stops working.
+           *
+           * The limits above are generous enough that ordinary suites do not trip them.
+           */
+          skipIf: (context) => {
+            // Polled every few seconds forever; throttling them would pull instances out
+            // of the load balancer during perfectly normal operation.
+            const path = context.switchToHttp().getRequest<{ url?: string }>().url ?? '';
+            return path === '/healthz' || path === '/readyz' || path === '/health';
+          },
+        };
+      },
     }),
 
     HealthModule,
