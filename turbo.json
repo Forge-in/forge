@@ -32,6 +32,23 @@
 
     // Needs its own app built (not just dependencies) because it boots the real Nest app
     // against real Postgres/Redis. Never cached: the result depends on external services.
-    "test:e2e": { "dependsOn": ["build", "^build"], "cache": false }
+    //
+    // passThroughEnv, not env: these are connection strings, so they must reach the task
+    // WITHOUT being mixed into the cache key — otherwise every developer's local password
+    // would produce a different hash. Safe here precisely because the task is uncached.
+    "test:e2e": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "DATABASE_READ_URL", "DATABASE_MIGRATION_URL", "REDIS_URL"]
+    },
+
+    // Integration tests against a real migrated database. Separate from `test` so a
+    // laptop with nothing running can still run the unit suite, and never cached because
+    // the result depends on the state of an external server rather than on the inputs.
+    "test:int": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "DATABASE_READ_URL", "DATABASE_MIGRATION_URL"]
+    }
   }
 }

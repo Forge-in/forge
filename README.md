@@ -12,6 +12,8 @@ forge/
 │  └─ user-mobile     @forge/user-mobile    Expo RN  – gym user app
 ├─ packages/
 │  ├─ shared          @forge/shared         types, zod schemas, roles — imported by everyone
+│  ├─ db              @forge/db             schema, migrations, RLS, withTenant()
+│  ├─ theme           @forge/theme          Wrath Core design system (web only)
 │  ├─ tsconfig        @forge/tsconfig       TypeScript presets, one per runtime
 │  └─ eslint-config   @forge/eslint-config  ESLint presets, one per runtime
 ├─ docker-compose.yml   # postgres + redis + minio (local infra)
@@ -216,8 +218,20 @@ source of truth.
 
 ## Conventions
 
-- **Every tenant-scoped table has `gym_id`.** Postgres RLS enforces it; app code sets it from the JWT, never from client input.
-- **Schema changes = a migration.** Never edit the DB by hand.
+- **The tenant is the STUDIO, not the gym.** A studio is the business that buys Forge;
+  gyms are its branches. Every tenant-scoped table has `studio_id`, Postgres RLS enforces
+  it, and app code sets it from the verified JWT — never from client input. Enforced by
+  `scripts/db/assert-tenancy.sql`, which fails CI if a new table skips it.
+- **`gym_id` records where something happened, never who may see it.** A membership is
+  sold at the studio, so an all-access chain pass is the default: filtering by
+  `registered_gym_id` would silently turn it into a single-branch pass. Access is resolved
+  once per request by `resolveAccessibleGyms()` into `accessibleGymIds`.
+- **`withTenant()` is the only door to the database.** The pools are private to
+  `@forge/db`; nothing else may open a connection. It pins the studio with
+  `set_config(..., true)` inside a transaction — a plain `SET` would leak the tenant to the
+  next request on that pooled connection.
+- **Schema changes = a migration**, with a matching file in `migrations/down/`. Never edit
+  the DB by hand. CI proves up → down → up on every PR.
 - **Roles/DTOs live in `packages/shared`.** Don't redefine them per app.
 - **Config presets live in `packages/*`.** If you find yourself editing the same
   tsconfig or ESLint rule in two apps, it belongs in a preset.

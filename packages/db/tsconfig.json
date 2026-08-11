@@ -1,0 +1,15 @@
+{
+  "extends": "@forge/tsconfig/base.json",
+  "compilerOptions": {
+    // Emitted as CommonJS so every consumer can use it unchanged: the NestJS
+    // API (CJS at runtime), Next.js, and Metro. See README "Why shared is built".
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  // Tests sit next to the code they cover, but they must never reach dist/ — this is a
+  // published-shape package and consumers resolve through exports -> dist/index.js.
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

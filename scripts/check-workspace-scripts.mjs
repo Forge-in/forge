@@ -29,7 +29,15 @@ const REQUIRED_ALWAYS = ['lint', 'typecheck', 'test'];
  * compiles. It is the only real signal for the Next apps: `tsc --noEmit` does not catch
  * RSC boundary violations, bad "use client" placement, or invalid route exports.
  */
-const REQUIRED_BUILD = ['apps/admin', 'apps/owner-web', 'apps/api', 'packages/shared'];
+const REQUIRED_BUILD = [
+  'apps/admin',
+  'apps/owner-web',
+  'apps/api',
+  'packages/shared',
+  // Emits CommonJS for the same reason as @forge/shared: the API runs as `node dist/main`
+  // and cannot require TypeScript from node_modules at runtime.
+  'packages/db',
+];
 
 /**
  * Config-only packages. These ship no code of their own — they are consumed as JSON/flat
