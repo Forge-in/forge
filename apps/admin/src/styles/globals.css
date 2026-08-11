@@ -1,0 +1,15 @@
+/**
+ * Admin stylesheet entry point.
+ *
+ * This file stays intentionally thin: Tailwind, then the shared design system.
+ * Every colour, font and typographic role comes from `@forge/theme/theme.css`,
+ * which is the single source of truth for the whole platform. Do not add
+ * app-specific colours or font sizes here — add a token to the theme instead.
+ */
+
+@import 'tailwindcss';
+@import '@forge/theme/theme.css';
+
+/* Tailwind scans the app source for utility usage. Declared explicitly because
+ * the stylesheet lives in `src/styles`, not at the source root. */
+@source '../**/*.{ts,tsx}';

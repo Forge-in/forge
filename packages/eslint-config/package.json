@@ -1,0 +1,32 @@
+{
+  "name": "@forge/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared ESLint flat-config presets. One preset per runtime; apps re-export, never redefine.",
+  "files": [
+    "base.mjs",
+    "nest.mjs",
+    "next.mjs",
+    "expo.mjs"
+  ],
+  "exports": {
+    "./base": "./base.mjs",
+    "./nest": "./nest.mjs",
+    "./next": "./next.mjs",
+    "./expo": "./expo.mjs"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint-config-expo": "^57.0.1",
+    "eslint-config-next": "16.3.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.2",
+    "globals": "^17.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0"
+  },
+  "peerDependencies": {
+    "eslint": "^9"
+  }
+}

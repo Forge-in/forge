@@ -1,0 +1,21 @@
+{
+  "name": "@forge/theme",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Single-file Wrath Core design system: tokens, type roles and primitives shared by every Forge web surface.",
+  "sideEffects": [
+    "*.css"
+  ],
+  "main": "./theme.css",
+  "style": "./theme.css",
+  "exports": {
+    ".": "./theme.css",
+    "./theme.css": "./theme.css",
+    "./tokens": "./tokens.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "theme.css",
+    "tokens.json"
+  ]
+}

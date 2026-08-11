@@ -1,19 +1,8 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "@forge/tsconfig/nest.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "baseUrl": "./",
-    "incremental": true,
-    "removeComments": true,
-
-    // NestJS needs these: decorator metadata is what drives DI and validation pipes.
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-
-    "resolvePackageJsonExports": true,
-    "allowSyntheticDefaultImports": true,
-    "isolatedModules": true,
-    "noFallthroughCasesInSwitch": true
+    "baseUrl": "./"
   },
   "include": ["src", "test"]
 }

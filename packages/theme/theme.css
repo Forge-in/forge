@@ -1,0 +1,606 @@
+/* =============================================================================
+ * @forge/theme — Wrath Core
+ * -----------------------------------------------------------------------------
+ * The ENTIRE visual language of the product lives in this one file: palette,
+ * typography, structural primitives and motion. Any app in the monorepo gets the
+ * whole design system with a single import:
+ *
+ *   @import 'tailwindcss';
+ *   @import '@forge/theme/theme.css';
+ *
+ * Nothing here is app-specific. Components must never hard-code a hex value, a
+ * font stack or a font size — if a value is missing, add a token here.
+ *
+ * Layout of this file
+ *   1. Palette          — raw `--wc-*` custom properties, per colour scheme
+ *   2. Metrics          — hairlines, chrome sizes, motion
+ *   3. Tailwind bridge  — `@theme inline` maps `--wc-*` onto utility classes
+ *   4. Base             — element defaults, scrollbars, focus, reduced motion
+ *   5. Type roles       — every typographic treatment in the system
+ *   6. Primitives       — card, hairline, field, dot, avatar, rows
+ *
+ * Colour-scheme contract: `<html>` carries `data-theme="dark" | "light"`.
+ * Dark is the default and also the no-JS fallback.
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 1. Palette
+ * ------------------------------------------------------------------------ */
+
+:root,
+[data-theme='dark'] {
+  --wc-canvas: #0c121c;
+  --wc-surface: #141b27;
+  --wc-line: #232c3b;
+  --wc-line-strong: #3a465a;
+  --wc-dim: #4e5a6b;
+  --wc-muted: #6e7a8a;
+  --wc-sub: #9aa5b4;
+  --wc-ink: #f4f1ea;
+  --wc-accent: #dcc9a0;
+  --wc-accent-deep: #8a6c2a;
+  --wc-scrim: rgb(6 10 16 / 0.72);
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --wc-canvas: #f6f3ee;
+  --wc-surface: #ffffff;
+  --wc-line: #ded8cc;
+  --wc-line-strong: #b4ab99;
+  --wc-dim: #9a9282;
+  --wc-muted: #77705f;
+  --wc-sub: #565044;
+  --wc-ink: #151a22;
+  --wc-accent: #7c5f1f;
+  --wc-accent-deep: #4e3a11;
+  --wc-scrim: rgb(40 34 24 / 0.34);
+
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Metrics, type stacks and motion
+ *
+ * Font families resolve through `next/font` CSS variables when the host app
+ * provides them, and fall back to the plain family name so this file also works
+ * standalone (e.g. a static page loading the fonts from a <link>).
+ * ------------------------------------------------------------------------ */
+
+:root {
+  --wc-font-sans:
+    var(--font-archivo, 'Archivo'), ui-sans-serif, system-ui, 'Helvetica Neue', Helvetica,
+    sans-serif;
+  --wc-font-display: var(--font-archivo-black, 'Archivo Black'), var(--wc-font-sans);
+  --wc-font-serif:
+    var(--font-instrument-serif, 'Instrument Serif'), Georgia, 'Times New Roman', serif;
+  --wc-font-mono:
+    var(--font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* The system is drawn with hairlines, never 1px borders. */
+  --wc-hairline: 0.5px;
+
+  /* Chrome */
+  --wc-sidebar-w: 236px;
+  /* Width of an edge panel: the invite drawer and the login sign-in column. */
+  --wc-panel-w: 520px;
+  --wc-dot: 5px;
+
+  /* Motion — every transition in the system uses one of these. */
+  --wc-ease: cubic-bezier(0.2, 0, 0.13, 1);
+  --wc-duration: 140ms;
+  --wc-duration-slow: 220ms;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Tailwind bridge
+ *
+ * `inline` is deliberate: generated utilities reference `var(--wc-*)` directly,
+ * so flipping `data-theme` re-themes the whole tree with no utility rebuild.
+ * ------------------------------------------------------------------------ */
+
+@theme inline {
+  --color-canvas: var(--wc-canvas);
+  --color-surface: var(--wc-surface);
+  --color-line: var(--wc-line);
+  --color-line-strong: var(--wc-line-strong);
+  --color-dim: var(--wc-dim);
+  --color-muted: var(--wc-muted);
+  --color-sub: var(--wc-sub);
+  --color-ink: var(--wc-ink);
+  --color-accent: var(--wc-accent);
+  --color-accent-deep: var(--wc-accent-deep);
+  --color-scrim: var(--wc-scrim);
+
+  --font-sans: var(--wc-font-sans);
+  --font-display: var(--wc-font-display);
+  --font-serif: var(--wc-font-serif);
+  --font-mono: var(--wc-font-mono);
+
+  --leading-prose: 1.6;
+  --leading-tight-prose: 1.55;
+
+  --spacing-sidebar: var(--wc-sidebar-w);
+  --spacing-panel: var(--wc-panel-w);
+  --spacing-dot: var(--wc-dot);
+
+  /* `--container-*` is what `max-w-*` reads from. */
+  --container-panel: var(--wc-panel-w);
+
+  --ease-wc: var(--wc-ease);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Base
+ * ------------------------------------------------------------------------ */
+
+@layer base {
+  html {
+    background-color: var(--wc-canvas);
+  }
+
+  body {
+    background-color: var(--wc-canvas);
+    color: var(--wc-ink);
+    font-family: var(--wc-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Form controls do not inherit the family through a Tailwind reset. */
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+  }
+
+  ::placeholder {
+    color: var(--wc-dim);
+    opacity: 1;
+  }
+
+  ::selection {
+    background-color: var(--wc-accent);
+    color: var(--wc-canvas);
+  }
+
+  /* The design draws a square, flat scrollbar rather than the platform one. */
+  * {
+    scrollbar-color: var(--wc-line) var(--wc-canvas);
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--wc-line);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--wc-line-strong);
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: var(--wc-canvas);
+  }
+
+  /* The source design removed focus rings entirely. Keyboard users need one, so
+   * the system keeps a hairline accent ring that matches the flat aesthetic. */
+  :focus-visible {
+    outline: 1px solid var(--wc-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Type roles
+ *
+ * Every typographic treatment in the product is named here. Components pick a
+ * role and, where the colour varies with state, add a `text-*` utility — these
+ * rules live in the components layer, so utilities always win.
+ * ------------------------------------------------------------------------ */
+
+@layer components {
+  /* — Mono, uppercase, tracked ————————————————————————————————— */
+
+  /* Field and metric labels: "Registered gyms", "Work email". */
+  .t-eyebrow {
+    font-family: var(--wc-font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wc-muted);
+  }
+
+  /* Table column headers. */
+  .t-colhead {
+    font-family: var(--wc-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wc-muted);
+  }
+
+  /* Inline actions, filter chips, status text. */
+  .t-action {
+    font-family: var(--wc-font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Solid and outlined buttons in chrome. */
+  .t-pill {
+    font-family: var(--wc-font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Plan badge on the gym detail header, "← All gyms". */
+  .t-tag {
+    font-family: var(--wc-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Login buttons. */
+  .t-cta {
+    font-family: var(--wc-font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* Dark / Light segmented control, login theme switch. */
+  .t-toggle {
+    font-family: var(--wc-font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* The "or" between login methods. */
+  .t-rule {
+    font-family: var(--wc-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wc-muted);
+  }
+
+  /* — Mono, untracked ——————————————————————————————————————— */
+
+  .t-mono-2xs {
+    font-family: var(--wc-font-mono);
+    font-size: 10px;
+  }
+
+  .t-mono-xs {
+    font-family: var(--wc-font-mono);
+    font-size: 10.5px;
+  }
+
+  .t-mono-sm {
+    font-family: var(--wc-font-mono);
+    font-size: 11px;
+  }
+
+  .t-mono-md {
+    font-family: var(--wc-font-mono);
+    font-size: 11.5px;
+  }
+
+  .t-mono-lg {
+    font-family: var(--wc-font-mono);
+    font-size: 12px;
+  }
+
+  /* Trial-length options — tracked but not uppercased. */
+  .t-trial {
+    font-family: var(--wc-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  /* — Sans body ——————————————————————————————————————————— */
+
+  .t-xs {
+    font-size: 12px;
+  }
+
+  .t-sm {
+    font-size: 12.5px;
+  }
+
+  .t-base {
+    font-size: 13px;
+  }
+
+  .t-body {
+    font-size: 13.5px;
+  }
+
+  .t-md {
+    font-size: 14px;
+  }
+
+  .t-lg {
+    font-size: 14.5px;
+  }
+
+  /* Card and section headings. */
+  .t-section {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* Standfirst paragraph under a hero heading. */
+  .t-lede {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* — Headings ———————————————————————————————————————————— */
+
+  .t-drawer-title {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .t-page-title {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .t-signin-title {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .t-detail-title {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .t-hero {
+    font-size: 38px;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+
+  /* — Numerals ———————————————————————————————————————————— */
+
+  .t-num-xs {
+    font-size: 22px;
+    font-weight: 600;
+  }
+
+  .t-num-sm {
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .t-num {
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .t-num-md {
+    font-size: 34px;
+    font-weight: 600;
+    line-height: 0.95;
+  }
+
+  .t-num-lg {
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 0.95;
+  }
+
+  /* — Serif display: reserved for the single hero metric on a screen ——— */
+
+  .t-display-sm {
+    font-family: var(--wc-font-serif);
+    font-size: 42px;
+    line-height: 0.9;
+    color: var(--wc-accent);
+  }
+
+  .t-display {
+    font-family: var(--wc-font-serif);
+    font-size: 44px;
+    line-height: 0.9;
+    color: var(--wc-accent);
+  }
+
+  .t-display-lg {
+    font-family: var(--wc-font-serif);
+    font-size: 54px;
+    line-height: 0.85;
+    color: var(--wc-accent);
+  }
+
+  .t-display-xl {
+    font-family: var(--wc-font-serif);
+    font-size: 58px;
+    line-height: 0.85;
+    color: var(--wc-accent);
+  }
+
+  /* — Brand ——————————————————————————————————————————————— */
+
+  .t-brand-sm {
+    font-family: var(--wc-font-display);
+    font-size: 14px;
+  }
+
+  .t-brand {
+    font-family: var(--wc-font-display);
+    font-size: 15px;
+  }
+
+  .t-plan-name {
+    font-family: var(--wc-font-display);
+    font-size: 17px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Structural primitives
+ * ------------------------------------------------------------------------ */
+
+@layer components {
+  /* Hairlines. Colour is overridable with any `border-*` utility. */
+  .hairline,
+  .hairline-t,
+  .hairline-b,
+  .hairline-l,
+  .hairline-r,
+  .hairline-x,
+  .hairline-y {
+    border-style: solid;
+    border-color: var(--wc-line);
+    border-width: 0;
+  }
+
+  .hairline {
+    border-width: var(--wc-hairline);
+  }
+
+  .hairline-t {
+    border-top-width: var(--wc-hairline);
+  }
+
+  .hairline-b {
+    border-bottom-width: var(--wc-hairline);
+  }
+
+  .hairline-l {
+    border-left-width: var(--wc-hairline);
+  }
+
+  .hairline-r {
+    border-right-width: var(--wc-hairline);
+  }
+
+  .hairline-x {
+    border-inline-width: var(--wc-hairline);
+  }
+
+  .hairline-y {
+    border-block-width: var(--wc-hairline);
+  }
+
+  /* The one container shape in the system: raised surface + hairline. */
+  .wc-card {
+    background-color: var(--wc-surface);
+    border: var(--wc-hairline) solid var(--wc-line);
+  }
+
+  /* Text inputs, selects, textareas. */
+  .wc-field {
+    width: 100%;
+    background-color: var(--wc-surface);
+    border: var(--wc-hairline) solid var(--wc-line);
+    color: var(--wc-ink);
+    transition: border-color var(--wc-duration) var(--wc-ease);
+  }
+
+  .wc-field:hover:not(:disabled) {
+    border-color: var(--wc-line-strong);
+  }
+
+  .wc-field:focus {
+    border-color: var(--wc-line-strong);
+  }
+
+  .wc-field:disabled {
+    color: var(--wc-muted);
+    cursor: not-allowed;
+  }
+
+  .wc-field[aria-invalid='true'] {
+    border-color: var(--wc-accent-deep);
+  }
+
+  /* 5px square status marker. Colour comes from a `bg-*` utility. */
+  .wc-dot {
+    width: var(--wc-dot);
+    height: var(--wc-dot);
+    flex-shrink: 0;
+  }
+
+  /* Monogram / logo placeholder used in tables and detail headers. */
+  .wc-avatar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--wc-line);
+    color: var(--wc-sub);
+    font-weight: 600;
+  }
+
+  /* Outlined controls: they only change colour on hover, never size. */
+  .wc-hoverable {
+    transition:
+      background-color var(--wc-duration) var(--wc-ease),
+      border-color var(--wc-duration) var(--wc-ease),
+      color var(--wc-duration) var(--wc-ease);
+  }
+
+  .wc-hoverable:hover:not(:disabled) {
+    border-color: var(--wc-line-strong);
+    color: var(--wc-ink);
+  }
+
+  /* Solid, high-contrast action (ink on canvas). */
+  .wc-solid {
+    background-color: var(--wc-ink);
+    color: var(--wc-canvas);
+    transition: opacity var(--wc-duration) var(--wc-ease);
+  }
+
+  .wc-solid:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  .wc-solid:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Row that reads as a link target: the whole row lifts on hover. */
+  .wc-row {
+    transition: background-color var(--wc-duration) var(--wc-ease);
+  }
+
+  .wc-row:hover {
+    background-color: color-mix(in srgb, var(--wc-line) 32%, transparent);
+  }
+}

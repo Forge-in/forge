@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Forge NestJS",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "removeComments": true,
+
+    // Decorator metadata is what drives Nest's DI and validation pipes.
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+
+    "resolvePackageJsonExports": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "noFallthroughCasesInSwitch": true
+  }
+}

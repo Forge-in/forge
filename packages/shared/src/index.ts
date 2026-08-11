@@ -1,2 +1,3 @@
-export * from './roles.js';
-export * from './dto/auth.js';
+// Domain-scoped barrels. Add a sibling folder per domain (billing, gyms,
+// sessions...) rather than growing flat files at the package root.
+export * from './auth/index.js';
