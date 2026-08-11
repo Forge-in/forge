@@ -6,7 +6,7 @@
  * tenant pinned. withTenant() and its siblings are the only door, and an ESLint rule
  * enforces the same thing statically — a comment is not a guarantee.
  */
-export { initDb, closeDb, type DbConfig, type ForgeDatabase } from './client.js';
+export { initDb, closeDb, pingDatabase, type DbConfig, type ForgeDatabase } from './client.js';
 
 export {
   withTenant,

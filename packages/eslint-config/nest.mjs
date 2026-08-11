@@ -9,7 +9,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 import prettierRecommended from 'eslint-plugin-prettier/recommended';
-import base, { ignores } from './base.mjs';
+import base, { ignores, testFileOverrides } from './base.mjs';
 
 export function nestConfig(tsconfigRootDir) {
   return tseslint.config(
@@ -33,6 +33,9 @@ export function nestConfig(tsconfigRootDir) {
         'prettier/prettier': ['error', { endOfLine: 'auto' }],
       },
     },
+    // Must come after recommendedTypeChecked: flat config is last-one-wins, so applying
+    // this earlier (inside base) would be undone by the type-checked preset above.
+    testFileOverrides,
     prettier,
   );
 }

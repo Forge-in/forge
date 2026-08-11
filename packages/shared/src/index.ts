@@ -2,3 +2,4 @@
 // sessions...) rather than growing flat files at the package root.
 export * from './auth/index.js';
 export * from './web/index.js';
+export * from './errors/index.js';

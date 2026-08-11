@@ -209,7 +209,27 @@ pnpm format:check
 | trainer-mobile | Metro on 8081         |
 | user-mobile    | Metro on 8082         |
 
-`GET http://localhost:4000/health` is the API's liveness probe.
+Product routes live under `/api/v1`. Probes sit outside both the prefix and versioning, so
+a load balancer never has to chase a version bump:
+
+| endpoint   | question it answers        | on failure                                      |
+| ---------- | -------------------------- | ----------------------------------------------- |
+| `/healthz` | is the process alive?      | the container is **killed** and restarted       |
+| `/readyz`  | should it receive traffic? | it is pulled from the load balancer, not killed |
+
+`/healthz` deliberately touches nothing external. If it checked Postgres, one database blip
+would fail every liveness probe at once and restart every container simultaneously — hitting
+a recovering database with a herd of cold starts. `/readyz` checks Postgres and Redis and
+returns 503 naming whichever failed.
+
+First run needs the database roles created once — see `.env.example`:
+
+```bash
+psql "postgresql://forge:forge_dev_pw@localhost:5432/forge" \
+  -v migrator_password=mig_dev_pw -v app_password=app_dev_pw \
+  -f packages/db/sql/bootstrap-roles.sql
+pnpm --filter @forge/db db:migrate
+```
 
 Local infra: Postgres `5432`, MinIO console http://localhost:9001
 (`minioadmin` / `minioadmin`), Redis `6379` — unless you've remapped any of them

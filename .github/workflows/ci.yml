@@ -66,6 +66,11 @@ jobs:
       - run: pnpm build
       - run: node scripts/check-package-files.mjs
 
+      # Edit the Drizzle schema, forget to generate the migration, and nothing fails until
+      # production says "column does not exist". Needs no database — drizzle-kit generate
+      # diffs against the committed snapshots.
+      - run: node scripts/db/check-migration-drift.mjs
+
   # Everything that needs real infrastructure. Row-level security is database behaviour —
   # it cannot be unit-tested, and a mocked version would only assert that the mock agrees
   # with the test — so this job is the only place tenant isolation can actually be proven.
@@ -87,6 +92,18 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # Required by /readyz and by rate limiting. Not optional in CI for the same reason it
+      # is not optional at runtime: an in-memory fallback would make the tests pass while
+      # the behaviour they cover silently stops working across multiple containers.
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       # Two URLs, two roles. This split is the whole point: forge_app owns nothing and has
       # NOBYPASSRLS, so if the isolation tests were accidentally run as the owner (or as a
@@ -94,6 +111,16 @@ jobs:
       SUPERUSER_URL: postgresql://forge:forge_ci_pw@localhost:5432/forge
       DATABASE_MIGRATION_URL: postgresql://forge_migrator:mig_ci_pw@localhost:5432/forge
       DATABASE_URL: postgresql://forge_app:app_ci_pw@localhost:5432/forge
+      REDIS_URL: redis://localhost:6379
+
+      # Throwaway values that satisfy the boot-time schema (>= 32 chars, not placeholders,
+      # and distinct from each other). Real secrets never touch CI for this suite — nothing
+      # here verifies a token against anything outside the process.
+      JWT_ACCESS_SECRET: ci_access_secret_that_is_long_enough_1234567890
+      JWT_REFRESH_SECRET: ci_refresh_secret_that_is_long_enough_0987654321
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      NODE_ENV: test
+      LOG_LEVEL: warn
 
     steps:
       - uses: actions/checkout@v4

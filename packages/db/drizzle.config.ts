@@ -7,14 +7,15 @@ import { defineConfig } from 'drizzle-kit';
  * injection or a compromised process cannot rewrite the schema or drop a policy. Keeping
  * the two URLs separate is what makes that real rather than aspirational.
  */
-const url = process.env.DATABASE_MIGRATION_URL;
-
-if (!url) {
-  throw new Error(
-    'DATABASE_MIGRATION_URL is not set. It must point at the forge_migrator role — ' +
-      'DATABASE_URL (forge_app) cannot create or alter tables by design.',
-  );
-}
+/**
+ * Only `generate` and `check` use this file, and neither connects to a database — they
+ * diff the schema against the snapshots in migrations/meta. The placeholder therefore lets
+ * the drift check run in CI with no database at all.
+ *
+ * Migrations are applied by src/migrate.ts, which requires the real URL and says so
+ * clearly, so an unset variable can never silently produce a no-op migration run.
+ */
+const url = process.env.DATABASE_MIGRATION_URL ?? 'postgresql://drizzle-kit-does-not-connect';
 
 export default defineConfig({
   dialect: 'postgresql',

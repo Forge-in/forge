@@ -91,6 +91,30 @@ function assertInitialised(db: ForgeDatabase | undefined): ForgeDatabase {
 export const internalWriteDb = (): ForgeDatabase => assertInitialised(writeDb);
 export const internalReadDb = (): ForgeDatabase => assertInitialised(readDb);
 
+/**
+ * Liveness of the connection pool, for readiness probes.
+ *
+ * Deliberately NOT routed through runAsSystem(): that logs an audit warning on every call
+ * so unpinned access stays conspicuous, and a probe firing every few seconds would bury
+ * the real signal within minutes. It is also the one query that genuinely needs no tenant
+ * context — it reads nothing.
+ *
+ * `select 1` through the pool, rather than a TCP check, because what actually breaks is
+ * the pool handing out a usable connection: exhausted slots, a failed-over primary, or
+ * credentials rotated out from under a running process.
+ */
+export async function pingDatabase(): Promise<void> {
+  const pool = writePool;
+  if (!pool) throw new Error('Database not initialised');
+
+  const client = await pool.connect();
+  try {
+    await client.query('select 1');
+  } finally {
+    client.release();
+  }
+}
+
 /** Closes both pools. Called from the API's shutdown hook so deploys drain cleanly. */
 export async function closeDb(): Promise<void> {
   const pools = new Set([writePool, readPool].filter((p): p is Pool => p !== undefined));
