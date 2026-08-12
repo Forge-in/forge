@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@forge/api-client": "workspace:^",
     "@forge/shared": "workspace:*",
     "next": "16.3.0",
     "react": "19.2.8",
