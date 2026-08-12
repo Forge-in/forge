@@ -10,6 +10,7 @@ import { ErrorCode, isRetryable, type ErrorDetail, type ErrorEnvelope } from '@f
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 
+import { reportError } from '../../observability/sentry';
 import { REQUEST_ID_HEADER } from '../request-context';
 
 /**
@@ -69,6 +70,26 @@ export class AllExceptionsFilter implements ExceptionFilter {
         logPayload,
         exception instanceof Error ? exception.stack : String(exception),
       );
+
+      /**
+       * 5xx ONLY. A 4xx is a client mistake, not a defect — reporting those would bury real
+       * issues under validation failures and make the error count meaningless.
+       *
+       * The user object comes from the verified token, so these tags are trustworthy. No
+       * phone number is attached: requestId correlates to the log line above, which has it.
+       */
+      const user = (
+        request as Request & { user?: { sub?: string; studioId?: string | null; role?: string } }
+      ).user;
+
+      reportError(exception, {
+        requestId,
+        method: request.method,
+        ...(route?.path ? { path: route.path } : {}),
+        ...(user?.sub ? { userId: user.sub } : {}),
+        ...(user?.studioId ? { studioId: user.studioId } : {}),
+        ...(user?.role ? { role: user.role } : {}),
+      });
     } else {
       this.logger.warn({ ...logPayload, reason: message });
     }

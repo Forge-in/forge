@@ -8,8 +8,13 @@
  * No-op unless OTEL_ENABLED=true.
  */
 import { startTracing, stopTracing } from './tracing';
+import { flushSentry, initSentry } from './observability/sentry';
 
+// Tracing FIRST: its instrumentations patch http/pg/ioredis at require time, and a module
+// already loaded is never patched. Sentry runs with skipOpenTelemetrySetup, so it patches
+// nothing and is safe to initialise second.
 startTracing();
+initSentry();
 
 import { Logger as NestLogger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -53,8 +58,13 @@ async function bootstrap(): Promise<void> {
 
   // Flush pending spans last, so the spans for a crashing request survive it — those are
   // the ones worth having.
-  process.on('SIGTERM', () => void stopTracing());
-  process.on('SIGINT', () => void stopTracing());
+  // Flush buffered telemetry on the way out. Without this the events for the request that
+  // killed the process — the ones actually worth having — are lost.
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      void Promise.allSettled([stopTracing(), flushSentry()]);
+    });
+  }
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port);

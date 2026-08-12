@@ -144,6 +144,16 @@ export const envSchema = z
 
     // ---- Observability ------------------------------------------------------------
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+    /**
+     * Error reporting. Absent means DISABLED — no SDK init, no events, no cost.
+     *
+     * Not required in production even though it should be set there: a missing DSN must
+     * degrade to "no error reporting", never to "refuses to boot". Losing visibility is
+     * bad; an API that will not start because its telemetry is unconfigured is worse.
+     */
+    SENTRY_DSN: optional(z.string().url()),
+    SENTRY_ENVIRONMENT: optional(z.string()),
     /** Build identity, surfaced on /healthz so "which build is on staging" has an answer. */
     GIT_SHA: z.string().default('unknown'),
     BUILT_AT: z.string().default('unknown'),
