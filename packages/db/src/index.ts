@@ -25,4 +25,8 @@ export { resolveAccessibleGyms, assertGymAccessible, accessibleGymsFilter } from
 
 export { toBusinessDate, businessDayRange, DEFAULT_TIMEZONE } from './business-date.js';
 
+// Query operators, so no consumer imports drizzle-orm directly — see operators.ts for the
+// duplicate-instance failure that makes this a rule rather than a convenience.
+export * from './operators.js';
+
 export * from './schema/index.js';

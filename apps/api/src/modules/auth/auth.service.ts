@@ -2,6 +2,9 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ErrorCode, Role, v1 } from '@forge/shared';
 import {
+  and,
+  eq,
+  isNull,
   memberships,
   runAsSystem,
   studios,
@@ -10,7 +13,6 @@ import {
   withTenantRead,
   withUser,
 } from '@forge/db';
-import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Env } from '../../config/env.schema';
 import { OtpService } from './otp.service';

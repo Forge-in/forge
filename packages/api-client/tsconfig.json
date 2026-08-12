@@ -1,0 +1,32 @@
+{
+  "extends": "@forge/tsconfig/base.json",
+  "compilerOptions": {
+    /**
+     * Node16 resolution so the emitted .d.ts references dependencies through their exports
+     * maps rather than as file paths — see the long note in packages/db/tsconfig.json for
+     * the failure that taught us this (every type silently degrading to `any`).
+     *
+     * CommonJS output: consumed by Next and by Metro, both of which handle CJS, and it keeps
+     * this package identical in shape to @forge/shared and @forge/db.
+     */
+    "module": "Node16",
+    "moduleResolution": "Node16",
+
+    /**
+     * DOM is required, not incidental: this package runs in a browser and in React Native,
+     * and `fetch`, `Response`, `AbortController` and `setTimeout` all come from here. The
+     * repo-wide base targets Node and omits it.
+     *
+     * The cost is that `window` and `document` also become visible. Nothing in this package
+     * may touch them — it has to work under Metro, where they do not exist — so an
+     * accidental reference is a runtime crash on mobile that typechecks cleanly.
+     */
+    "lib": ["ES2022", "DOM"],
+
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  /** Tests sit next to the code they cover and must never reach dist/. */
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.int-test.ts"]
+}

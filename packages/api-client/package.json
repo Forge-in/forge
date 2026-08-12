@@ -1,0 +1,38 @@
+{
+  "name": "@forge/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The only way a Forge client talks to the API. Typed from @forge/shared contracts.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@forge/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@forge/eslint-config": "workspace:*",
+    "@forge/tsconfig": "workspace:*",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

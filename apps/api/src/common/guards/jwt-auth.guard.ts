@@ -8,8 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ErrorCode, Role } from '@forge/shared';
-import { memberships, resolveAccessibleGyms, withTenantRead } from '@forge/db';
-import { eq } from 'drizzle-orm';
+import { eq, memberships, resolveAccessibleGyms, withTenantRead } from '@forge/db';
 import type { Request } from 'express';
 import { ClsService } from 'nestjs-cls';
 

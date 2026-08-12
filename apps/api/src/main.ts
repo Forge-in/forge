@@ -1,3 +1,16 @@
+/**
+ * FIRST import, before anything else.
+ *
+ * The OpenTelemetry instrumentations patch modules like `http` and `pg` at require time, and
+ * a module that is already loaded is never patched. Moving this below the Nest imports
+ * silently produces an app with tracing enabled and no spans.
+ *
+ * No-op unless OTEL_ENABLED=true.
+ */
+import { startTracing, stopTracing } from './tracing';
+
+startTracing();
+
 import { Logger as NestLogger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -37,6 +50,11 @@ async function bootstrap(): Promise<void> {
    * burst of errors gets blamed on whatever was being released.
    */
   app.enableShutdownHooks();
+
+  // Flush pending spans last, so the spans for a crashing request survive it — those are
+  // the ones worth having.
+  process.on('SIGTERM', () => void stopTracing());
+  process.on('SIGINT', () => void stopTracing());
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port);

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
@@ -13,6 +13,9 @@ import type { Env } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { ClientVersionGuard } from './common/guards/client-version.guard';
+import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor';
+import { AppConfigModule } from './modules/app-config/app-config.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './modules/health/health.module';
@@ -53,6 +56,7 @@ import { HealthModule } from './modules/health/health.module';
     DatabaseModule,
     RedisModule,
     AuthModule,
+    AppConfigModule,
 
     /**
      * Global rate-limit floor. OTP request/verify get their own much tighter, phone-keyed
@@ -117,6 +121,13 @@ import { HealthModule } from './modules/health/health.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Last: an outdated build should be told to upgrade rather than told it is
+    // unauthorised, so this runs only once the caller is known to be legitimate.
+    { provide: APP_GUARD, useClass: ClientVersionGuard },
+
+    // Opt-in per route via @Idempotent(). Registered globally so a route only has to
+    // add the decorator, not remember to wire an interceptor as well.
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
   ],
 })
 export class AppModule {}
