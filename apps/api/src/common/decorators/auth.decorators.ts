@@ -1,5 +1,5 @@
 import { SetMetadata, createParamDecorator, type ExecutionContext } from '@nestjs/common';
-import type { AccessTokenPayload, Role } from '@forge/shared';
+import { TokenAudience, type AccessTokenPayload, type Role } from '@forge/shared';
 
 /**
  * Auth is DENY BY DEFAULT: JwtAuthGuard is registered globally, so a new controller is
@@ -23,6 +23,28 @@ export const ROLES_KEY = 'auth:roles';
  * passing this check still only ever sees their own studio.
  */
 export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+
+export const AUDIENCE_KEY = 'auth:audience';
+
+/**
+ * Declares WHICH SURFACE a controller serves, so a token minted for the other one is
+ * rejected before its role is ever read.
+ *
+ * The default is `app` rather than "whichever the token claims", and that asymmetry is
+ * deliberate. The member API is the large, fast-growing surface where a forgotten decorator
+ * is likely; defaulting it to the member audience means the omission is harmless there. The
+ * console is a handful of controllers added rarely and reviewed closely, so requiring the
+ * marker on exactly those is a cost paid where the attention already is.
+ *
+ * Roles do not make this redundant. `@Roles(PLATFORM_ADMIN)` asks "is this caller an
+ * administrator?"; this asks "was this credential issued for this surface?". A console
+ * session leaking into the member API would satisfy the first question and fail the second,
+ * which is the whole reason both exist.
+ */
+export const Audience = (audience: TokenAudience) => SetMetadata(AUDIENCE_KEY, audience);
+
+/** Shorthand for the company admin console. */
+export const ConsoleRoute = () => Audience(TokenAudience.CONSOLE);
 
 /**
  * Injects the verified token payload.

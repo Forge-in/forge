@@ -78,7 +78,12 @@
     "collectCoverageFrom excludes the modules whose behaviour only means something against",
     "real Redis and Postgres — token rotation races, RLS-scoped lookups, OTP storage. They",
     "are covered by apps/api/test/auth.e2e-spec.ts (40 assertions against live services).",
-    "Unit-covering them would mostly assert that mocks were called as written."
+    "Unit-covering them would mostly assert that mocks were called as written.",
+    "",
+    "admin-auth is excluded on the same grounds and for the same reason, not as a shortcut:",
+    "its load-bearing behaviour is FOR UPDATE locking, an unpinned-studio RLS policy, and a",
+    "Redis revocation epoch. A mocked version of any of those would assert that the mock",
+    "agrees with the test. It is covered by test/admin-auth.e2e-spec.ts against live services."
   ],
   "jest": {
     "moduleFileExtensions": [
@@ -104,6 +109,8 @@
       "!src/modules/auth/auth.controller.ts",
       "!src/modules/auth/otp.service.ts",
       "!src/modules/auth/token.service.ts",
+      "!src/modules/admin-auth/admin-auth.service.ts",
+      "!src/modules/admin-auth/admin-auth.controller.ts",
       "!src/common/guards/**",
       "!src/modules/health/health.service.ts"
     ],

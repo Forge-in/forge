@@ -22,6 +22,14 @@ SELECT * FROM (VALUES
   -- must not mean any studio-scoped bug can enumerate every phone number on the platform.
   ('users',   'global'),
 
+  -- GLOBAL: a platform administrator belongs to no studio — that is what makes them one —
+  -- so there is no studio_id that could scope these rows. What replaces the tenant wall is
+  -- the inverse policy: visible ONLY when no studio is pinned, so during ordinary request
+  -- handling (which always pins one) both tables are invisible rather than merely filtered.
+  -- The one door left is runAsSystem(), which logs every call. See migration 0005.
+  ('platform_admins',        'global'),
+  ('platform_admin_invites', 'global'),
+
   -- TENANT ROOT: the only tenant-scoped table with no studio_id column, because its own
   -- id IS the tenant key. Its policy is keyed on id and is checked like any other.
   ('studios', 'tenant_root')

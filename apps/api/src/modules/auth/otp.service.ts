@@ -36,6 +36,38 @@ const MAX_VERIFY_ATTEMPTS = 5;
 const PHONE_WINDOW_SECONDS = 900;
 const IP_WINDOW_SECONDS = 3600;
 
+/**
+ * WHICH SURFACE a code was issued for. Part of every key this service writes.
+ *
+ * Three concrete bugs it prevents, all of which only appear once the same human is both a
+ * gym member and a platform administrator — which is the normal case for a founder:
+ *
+ *   1. CODE CROSSOVER. Without a purpose in the key, a code requested on the member app
+ *      unlocks the company admin console. The console's second factor would then be
+ *      obtainable from the surface with the weakest rate limits and the largest attack
+ *      surface, which inverts the whole point of separating them.
+ *   2. BUDGET INTERFERENCE. The per-phone limit is three per fifteen minutes. Shared keys
+ *      mean anyone who knows an administrator's number can exhaust it from the public member
+ *      endpoint and lock that administrator out of the console during an incident — a denial
+ *      of service that costs the attacker three HTTP requests.
+ *   3. SILENT INVALIDATION. A successful member sign-in calls clear(), which would delete
+ *      the console code the administrator is mid-way through typing.
+ */
+export const OtpPurpose = {
+  /** Member product: both mobile apps and the gym owner dashboard. */
+  APP: 'app',
+  /** Company admin console. */
+  CONSOLE: 'console',
+} as const;
+
+export type OtpPurpose = (typeof OtpPurpose)[keyof typeof OtpPurpose];
+
+/** Per-purpose abuse limits, so one surface's traffic cannot spend another's budget. */
+export interface OtpLimits {
+  maxPerPhone: number;
+  maxPerIp: number;
+}
+
 interface StoredOtp {
   hash: string;
   attempts: number;
@@ -64,18 +96,18 @@ export class OtpService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  private codeKey(phone: string): string {
+  private codeKey(purpose: OtpPurpose, phone: string): string {
     // Hash the phone in the key too. Redis key names show up in MONITOR, in slow logs and
     // in metrics cardinality dashboards; the set of keys should not be a customer list.
-    return `otp:code:${this.hashPhone(phone)}`;
+    return `otp:code:${purpose}:${this.hashPhone(phone)}`;
   }
 
-  private phoneRateKey(phone: string): string {
-    return `otp:rate:phone:${this.hashPhone(phone)}`;
+  private phoneRateKey(purpose: OtpPurpose, phone: string): string {
+    return `otp:rate:${purpose}:phone:${this.hashPhone(phone)}`;
   }
 
-  private ipRateKey(ip: string): string {
-    return `otp:rate:ip:${createHash('sha256').update(ip).digest('hex').slice(0, 32)}`;
+  private ipRateKey(purpose: OtpPurpose, ip: string): string {
+    return `otp:rate:${purpose}:ip:${createHash('sha256').update(ip).digest('hex').slice(0, 32)}`;
   }
 
   private hashPhone(phone: string): string {
@@ -83,17 +115,17 @@ export class OtpService {
   }
 
   /**
-   * Codes are hashed with the phone number mixed in, so a stolen hash cannot be replayed
-   * against a different number, and two users who happen to receive the same code do not
-   * share a hash.
+   * Codes are hashed with the purpose and phone number mixed in, so a stolen hash cannot be
+   * replayed against a different number or a different surface, and two users who happen to
+   * receive the same code do not share a hash.
    *
    * SHA-256 rather than bcrypt/argon2 deliberately: the input space is 10^6 and lives for
    * five minutes, so a slow hash buys nothing an attacker could not brute-force offline
    * anyway — while costing ~100ms on a path that is rate-limited by wall clock. The real
    * protections are the attempt counter and the TTL.
    */
-  private hashCode(phone: string, code: string): string {
-    return createHash('sha256').update(`${phone}:${code}`).digest('hex');
+  private hashCode(purpose: OtpPurpose, phone: string, code: string): string {
+    return createHash('sha256').update(`${purpose}:${phone}:${code}`).digest('hex');
   }
 
   /**
@@ -102,10 +134,16 @@ export class OtpService {
    * @throws 429 when a rate limit is exceeded. The message never reveals whether the phone
    * is registered.
    */
-  async issue(phone: string, ip: string, requestId: string): Promise<OtpIssueResult> {
-    await this.enforceRateLimits(phone, ip);
+  async issue(
+    purpose: OtpPurpose,
+    phone: string,
+    ip: string,
+    requestId: string,
+    limits?: OtpLimits,
+  ): Promise<OtpIssueResult> {
+    await this.enforceRateLimits(purpose, phone, ip, limits);
 
-    const key = this.codeKey(phone);
+    const key = this.codeKey(purpose, phone);
     const existingTtl = await this.redis.ttl(key);
 
     /**
@@ -123,7 +161,11 @@ export class OtpService {
     }
 
     const code = this.generateCode();
-    const payload: StoredOtp = { hash: this.hashCode(phone, code), attempts: 0, requestId };
+    const payload: StoredOtp = {
+      hash: this.hashCode(purpose, phone, code),
+      attempts: 0,
+      requestId,
+    };
 
     await this.redis.set(key, JSON.stringify(payload), 'EX', OTP_TTL_SECONDS);
 
@@ -142,14 +184,14 @@ export class OtpService {
    * than distinguishing them. "Expired" versus "wrong" tells an attacker whether they are
    * racing a live code, and there is nothing a legitimate user does differently.
    */
-  async verify(phone: string, code: string): Promise<boolean> {
-    const key = this.codeKey(phone);
+  async verify(purpose: OtpPurpose, phone: string, code: string): Promise<boolean> {
+    const key = this.codeKey(purpose, phone);
     const raw = await this.redis.get(key);
 
     if (!raw) {
       // Still spend the hashing time, so a missing code is not distinguishable by timing
       // from a wrong one.
-      this.hashCode(phone, code);
+      this.hashCode(purpose, phone, code);
       return false;
     }
 
@@ -163,7 +205,7 @@ export class OtpService {
       return false;
     }
 
-    const matches = this.safeEqual(stored.hash, this.hashCode(phone, code));
+    const matches = this.safeEqual(stored.hash, this.hashCode(purpose, phone, code));
 
     if (!matches) {
       // Increment WITHOUT extending the TTL: the code must still die on schedule, or a
@@ -180,8 +222,8 @@ export class OtpService {
   }
 
   /** Clears the resend cooldown and any live code. Used after a successful sign-in. */
-  async clear(phone: string): Promise<void> {
-    await this.redis.del(this.codeKey(phone));
+  async clear(purpose: OtpPurpose, phone: string): Promise<void> {
+    await this.redis.del(this.codeKey(purpose, phone));
   }
 
   private generateCode(): string {
@@ -209,20 +251,32 @@ export class OtpService {
    * more precise, but a fixed one is a single round trip and the imprecision only ever
    * grants a user slightly more than the nominal allowance at a window boundary.
    */
-  private async enforceRateLimits(phone: string, ip: string): Promise<void> {
+  private async enforceRateLimits(
+    purpose: OtpPurpose,
+    phone: string,
+    ip: string,
+    limits?: OtpLimits,
+  ): Promise<void> {
     const [phoneCount, ipCount] = await Promise.all([
-      this.bump(this.phoneRateKey(phone), PHONE_WINDOW_SECONDS),
-      this.bump(this.ipRateKey(ip), IP_WINDOW_SECONDS),
+      this.bump(this.phoneRateKey(purpose, phone), PHONE_WINDOW_SECONDS),
+      this.bump(this.ipRateKey(purpose, ip), IP_WINDOW_SECONDS),
     ]);
 
-    const phoneMax = this.config.get('OTP_MAX_PER_PHONE', { infer: true });
-    const ipMax = this.config.get('OTP_MAX_PER_IP', { infer: true });
+    // Read into locals first. Inlining these into a `??` makes TypeScript resolve the
+    // widest ConfigService.get overload, which admits undefined and then reports the
+    // comparison below as unsafe — a confusing error for what is a plain default.
+    const defaultPhoneMax = this.config.get('OTP_MAX_PER_PHONE', { infer: true });
+    const defaultIpMax = this.config.get('OTP_MAX_PER_IP', { infer: true });
+
+    const phoneMax = limits?.maxPerPhone ?? defaultPhoneMax;
+    const ipMax = limits?.maxPerIp ?? defaultIpMax;
 
     if (phoneCount > phoneMax || ipCount > ipMax) {
       // Logged with a hashed phone: this line is exactly where a plaintext number would
       // otherwise end up in the log aggregator.
       this.logger.warn({
         event: 'otp.rate_limited',
+        purpose,
         phoneHash: this.hashPhone(phone),
         phoneCount,
         ipCount,

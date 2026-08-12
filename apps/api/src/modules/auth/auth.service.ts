@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ErrorCode, Role, v1 } from '@forge/shared';
+import { ErrorCode, Role, TokenAudience, v1 } from '@forge/shared';
 import {
   and,
   eq,
@@ -15,7 +15,7 @@ import {
 } from '@forge/db';
 
 import type { Env } from '../../config/env.schema';
-import { OtpService } from './otp.service';
+import { OtpPurpose, OtpService } from './otp.service';
 import type { OtpTransport } from './otp-transport';
 import { TokenService, type SessionClaims } from './token.service';
 
@@ -45,7 +45,7 @@ export class AuthService {
       return { status: 'sent', retryAfterSeconds: 60, expiresInSeconds: 300 };
     }
 
-    const issued = await this.otp.issue(phone, ip, requestId);
+    const issued = await this.otp.issue(OtpPurpose.APP, phone, ip, requestId);
 
     if (issued.isNewCode) {
       try {
@@ -85,7 +85,7 @@ export class AuthService {
   async verifyOtp(body: v1.VerifyOtpBody): Promise<v1.VerifyOtpResponse> {
     const verified = this.isDemoPhone(body.phone)
       ? body.otp === this.config.get('DEMO_OTP', { infer: true })
-      : await this.otp.verify(body.phone, body.otp);
+      : await this.otp.verify(OtpPurpose.APP, body.phone, body.otp);
 
     if (!verified) {
       throw new HttpException(
@@ -114,12 +114,15 @@ export class AuthService {
         status: 'needsStudioSelection',
         // Short-lived proof the OTP was verified, so the code is not re-entered.
         selectionToken: (
-          await this.tokens.issue({
-            userId: user.id,
-            studioId: null,
-            role: Role.GYM_USER,
-            membershipId: null,
-          })
+          await this.tokens.issue(
+            {
+              userId: user.id,
+              studioId: null,
+              role: Role.GYM_USER,
+              membershipId: null,
+            },
+            TokenAudience.APP,
+          )
         ).accessToken,
         // No cast needed: zod's .min(2) is a runtime constraint, not a tuple type, and
         // this branch is already guarded by available.length > 1.
@@ -140,14 +143,17 @@ export class AuthService {
       );
     }
 
-    await this.otp.clear(body.phone);
+    await this.otp.clear(OtpPurpose.APP, body.phone);
 
-    const tokens = await this.tokens.issue({
-      userId: user.id,
-      studioId: chosen.studioId,
-      role: chosen.role,
-      membershipId: chosen.membershipId,
-    });
+    const tokens = await this.tokens.issue(
+      {
+        userId: user.id,
+        studioId: chosen.studioId,
+        role: chosen.role,
+        membershipId: chosen.membershipId,
+      },
+      TokenAudience.APP,
+    );
 
     return {
       status: 'authenticated',
@@ -165,7 +171,7 @@ export class AuthService {
    * offboarded trainer must not keep working simply because their session is old.
    */
   async refresh(refreshToken: string): Promise<v1.RefreshResponse> {
-    const tokens = await this.tokens.rotate(refreshToken, async (payload) => {
+    const tokens = await this.tokens.rotate(refreshToken, TokenAudience.APP, async (payload) => {
       if (!payload.membershipId || !payload.studioId) {
         // A selection token (no membership) is not a session and cannot be refreshed.
         throw new HttpException(
@@ -207,12 +213,15 @@ export class AuthService {
       );
     }
 
-    const tokens = await this.tokens.issue({
-      userId,
-      studioId: target.studioId,
-      role: target.role,
-      membershipId: target.membershipId,
-    });
+    const tokens = await this.tokens.issue(
+      {
+        userId,
+        studioId: target.studioId,
+        role: target.role,
+        membershipId: target.membershipId,
+      },
+      TokenAudience.APP,
+    );
 
     return { tokens, membership: target };
   }

@@ -26,7 +26,8 @@
     "test:int": "vitest run --config vitest.int.config.mts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
-    "db:rollback": "tsx src/rollback.ts"
+    "db:rollback": "tsx src/rollback.ts",
+    "db:seed-admin": "tsx src/seed-platform-admin.ts"
   },
   "dependencies": {
     "@forge/shared": "workspace:*",

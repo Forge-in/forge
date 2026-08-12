@@ -13,7 +13,7 @@ export interface ClientOptions {
    * read by the forced-upgrade guard — an app that omits them cannot be told it is too old.
    */
   client: {
-    app: 'admin' | 'owner-web' | 'owner-mobile' | 'trainer-mobile' | 'user-mobile';
+    app: 'company-admin' | 'gym-owner' | 'trainer-mobile' | 'user-mobile';
     version: string;
     platform: 'web' | 'ios' | 'android';
     build?: string;
@@ -59,7 +59,19 @@ const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
  */
 type RefreshOutcome = 'refreshed' | 'rejected' | 'unavailable';
 
-export class ForgeApiClient {
+/**
+ * Everything that is not an endpoint: timeouts, idempotency keys, the error envelope, and
+ * the single-flight refresh.
+ *
+ * Split out so the company admin console can reuse it without inheriting the member
+ * endpoints. Those are not merely irrelevant to the console — a console token presented to
+ * `/v1/auth/me` is rejected by the audience check, so an inherited `me()` would be a method
+ * that compiles, reads sensibly at the call site, and returns 401 every time.
+ *
+ * Subclasses supply their own refresh path, which is the one piece of the transport that
+ * differs per surface.
+ */
+export abstract class ForgeHttpClient {
   private readonly fetchImpl: typeof fetch;
 
   /**
@@ -76,65 +88,17 @@ export class ForgeApiClient {
    */
   private refreshInFlight: Promise<RefreshOutcome> | undefined;
 
-  constructor(private readonly options: ClientOptions) {
+  constructor(protected readonly options: ClientOptions) {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
-  // ---- auth ---------------------------------------------------------------------------
-
-  async requestOtp(body: v1.RequestOtpBody): Promise<v1.RequestOtpResponse> {
-    return this.request({ method: 'POST', path: '/v1/auth/request-otp', body, anonymous: true });
-  }
-
-  async verifyOtp(body: v1.VerifyOtpBody): Promise<v1.VerifyOtpResponse> {
-    const result = await this.request<v1.VerifyOtpResponse>({
-      method: 'POST',
-      path: '/v1/auth/verify-otp',
-      body,
-      anonymous: true,
-    });
-
-    if (result.status === 'authenticated') {
-      await this.options.tokenStore.setTokens(result.tokens);
-    }
-
-    return result;
-  }
-
-  async me(): Promise<v1.MeResponse> {
-    return this.request({ method: 'GET', path: '/v1/auth/me' });
-  }
-
-  async switchStudio(body: v1.SwitchStudioBody): Promise<v1.SwitchStudioResponse> {
-    const result = await this.request<v1.SwitchStudioResponse>({
-      method: 'POST',
-      path: '/v1/auth/switch-studio',
-      body,
-    });
-
-    await this.options.tokenStore.setTokens(result.tokens);
-    return result;
-  }
-
-  async logout(): Promise<void> {
-    const refreshToken = await this.options.tokenStore.getRefreshToken();
-
-    try {
-      await this.request({
-        method: 'POST',
-        path: '/v1/auth/logout',
-        body: refreshToken ? { refreshToken } : {},
-      });
-    } finally {
-      // Cleared even if the call failed. A user who taps "sign out" must end up signed out
-      // locally regardless of whether the server was reachable.
-      await this.options.tokenStore.clear();
-    }
-  }
-
-  async appConfig(): Promise<v1.AppConfigResponse> {
-    return this.request({ method: 'GET', path: '/v1/app-config', anonymous: true });
-  }
+  /**
+   * Where this surface renews a session. The console's refresh endpoint refuses a member's
+   * token and vice versa, so pointing at the wrong one produces a session that can never be
+   * renewed — every request 401s once the access token expires, with nothing in the client
+   * able to fix it.
+   */
+  protected abstract readonly refreshPath: string;
 
   // ---- transport ----------------------------------------------------------------------
 
@@ -291,7 +255,7 @@ export class ForgeApiClient {
     try {
       const response = await this.send({
         method: 'POST',
-        path: '/v1/auth/refresh',
+        path: this.refreshPath,
         body: { refreshToken },
         anonymous: true,
       });
@@ -308,6 +272,72 @@ export class ForgeApiClient {
       // know — so the tokens are kept and the app can retry.
       return 'unavailable';
     }
+  }
+}
+
+/**
+ * The member product: both mobile apps and the gym owner dashboard.
+ *
+ * Everything here talks to `/v1/auth/*`, whose tokens carry the `app` audience. Presenting
+ * one of these sessions to the company admin console is rejected server-side.
+ */
+export class ForgeApiClient extends ForgeHttpClient {
+  protected readonly refreshPath = '/v1/auth/refresh';
+
+  // ---- auth ---------------------------------------------------------------------------
+
+  async requestOtp(body: v1.RequestOtpBody): Promise<v1.RequestOtpResponse> {
+    return this.request({ method: 'POST', path: '/v1/auth/request-otp', body, anonymous: true });
+  }
+
+  async verifyOtp(body: v1.VerifyOtpBody): Promise<v1.VerifyOtpResponse> {
+    const result = await this.request<v1.VerifyOtpResponse>({
+      method: 'POST',
+      path: '/v1/auth/verify-otp',
+      body,
+      anonymous: true,
+    });
+
+    if (result.status === 'authenticated') {
+      await this.options.tokenStore.setTokens(result.tokens);
+    }
+
+    return result;
+  }
+
+  async me(): Promise<v1.MeResponse> {
+    return this.request({ method: 'GET', path: '/v1/auth/me' });
+  }
+
+  async switchStudio(body: v1.SwitchStudioBody): Promise<v1.SwitchStudioResponse> {
+    const result = await this.request<v1.SwitchStudioResponse>({
+      method: 'POST',
+      path: '/v1/auth/switch-studio',
+      body,
+    });
+
+    await this.options.tokenStore.setTokens(result.tokens);
+    return result;
+  }
+
+  async logout(): Promise<void> {
+    const refreshToken = await this.options.tokenStore.getRefreshToken();
+
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/v1/auth/logout',
+        body: refreshToken ? { refreshToken } : {},
+      });
+    } finally {
+      // Cleared even if the call failed. A user who taps "sign out" must end up signed out
+      // locally regardless of whether the server was reachable.
+      await this.options.tokenStore.clear();
+    }
+  }
+
+  async appConfig(): Promise<v1.AppConfigResponse> {
+    return this.request({ method: 'GET', path: '/v1/app-config', anonymous: true });
   }
 }
 

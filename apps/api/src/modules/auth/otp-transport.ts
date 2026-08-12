@@ -100,19 +100,37 @@ export class Msg91OtpTransport implements OtpTransport {
  */
 export function createOtpTransport(config: ConfigService<Env, true>): OtpTransport {
   const isProduction = config.get('NODE_ENV', { infer: true }) === 'production';
-  const hasCredentials = Boolean(config.get('MSG91_AUTH_KEY', { infer: true }));
+
+  /**
+   * BOTH values, not just the auth key.
+   *
+   * An auth key alone cannot deliver anything — send() needs a template id and throws
+   * without one. Treating a half-configured gateway as "configured" produced a trap during
+   * DLT registration, which is exactly when it hurts: the auth key arrives from MSG91 weeks
+   * before template approval, someone puts it in `.env`, and development breaks. The API
+   * abandons the console transport, every sign-in 503s, and the OTP stops appearing in the
+   * log — so there is no way in and no visible reason why.
+   *
+   * Requiring both means a partially-provisioned gateway degrades to "log the code", which
+   * is the state the team is actually in for those weeks. It also matches the boot-time
+   * schema, which has always required the pair in production (see env.schema.ts), and the
+   * same "set both or neither" rule DEMO_PHONE/DEMO_OTP follow.
+   */
+  const hasCredentials =
+    Boolean(config.get('MSG91_AUTH_KEY', { infer: true })) &&
+    Boolean(config.get('MSG91_OTP_TEMPLATE_ID', { infer: true }));
 
   if (isProduction) {
     if (!hasCredentials) {
       throw new Error(
-        'MSG91_AUTH_KEY is required in production — refusing to start with a transport ' +
-          'that cannot deliver OTPs.',
+        'MSG91_AUTH_KEY and MSG91_OTP_TEMPLATE_ID are both required in production — ' +
+          'refusing to start with a transport that cannot deliver OTPs.',
       );
     }
     return new Msg91OtpTransport(config);
   }
 
-  // Outside production, use the real gateway when it is configured so DLT delivery can be
-  // exercised on staging; otherwise log the code.
+  // Outside production, use the real gateway only when it is FULLY configured so DLT
+  // delivery can be exercised on staging; otherwise log the code.
   return hasCredentials ? new Msg91OtpTransport(config) : new ConsoleOtpTransport();
 }

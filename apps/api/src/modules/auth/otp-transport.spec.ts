@@ -34,7 +34,18 @@ describe('createOtpTransport', () => {
      */
     it('refuses to start without credentials rather than falling back', () => {
       expect(() => createOtpTransport(configWith({ NODE_ENV: 'production' }))).toThrow(
-        /MSG91_AUTH_KEY is required in production/,
+        /MSG91_AUTH_KEY and MSG91_OTP_TEMPLATE_ID are both required/,
+      );
+    });
+
+    // Half-configured is not configured: an auth key with no template cannot deliver, and
+    // booting on it would mean discovering that on the first sign-in attempt instead of here.
+    it.each<[Partial<Record<keyof Env, unknown>>, string]>([
+      [{ MSG91_AUTH_KEY: 'k' }, 'a template id'],
+      [{ MSG91_OTP_TEMPLATE_ID: 't' }, 'an auth key'],
+    ])('refuses to start when missing %s', (partial) => {
+      expect(() => createOtpTransport(configWith({ NODE_ENV: 'production', ...partial }))).toThrow(
+        /both required/,
       );
     });
 
@@ -62,6 +73,27 @@ describe('createOtpTransport', () => {
       );
 
       expect(transport).toBeInstanceOf(Msg91OtpTransport);
+    });
+
+    /**
+     * THE TRAP THIS CLOSES, and it is a real one rather than a hypothetical.
+     *
+     * MSG91 hands over the auth key immediately; the template id only exists after TRAI DLT
+     * approval, one to three weeks later. In between, the obvious thing to do is put the key
+     * in `.env` so it is not lost — and before this, that switched the API onto a gateway
+     * that could not deliver. Sign-in returned 503 and the code stopped appearing in the
+     * log, so the whole team lost local sign-in with nothing explaining why.
+     *
+     * Keeping the console transport until BOTH values exist means the half-provisioned
+     * state, which is where the project genuinely sits for those weeks, just works.
+     */
+    it.each<[Partial<Record<keyof Env, unknown>>, string]>([
+      [{ MSG91_AUTH_KEY: 'k' }, 'only the auth key is set (template still awaiting DLT)'],
+      [{ MSG91_OTP_TEMPLATE_ID: 't' }, 'only the template id is set'],
+    ])('still logs the code when %#: %s', (partial) => {
+      const transport = createOtpTransport(configWith({ NODE_ENV: 'development', ...partial }));
+
+      expect(transport).toBeInstanceOf(ConsoleOtpTransport);
     });
   });
 });

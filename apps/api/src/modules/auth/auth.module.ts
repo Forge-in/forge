@@ -45,6 +45,11 @@ export const OTP_TRANSPORT = Symbol('OTP_TRANSPORT');
       ) => new AuthService(otp, transport, tokens, config),
     },
   ],
-  exports: [TokenService, AuthService, OTP_TRANSPORT],
+  /**
+   * OtpService is exported so the company admin console can reuse it rather than growing a
+   * second implementation of hashed, single-use, attempt-counted codes. Being @Global does
+   * not make a provider injectable elsewhere — only this list does.
+   */
+  exports: [TokenService, AuthService, OtpService, OTP_TRANSPORT],
 })
 export class AuthModule {}

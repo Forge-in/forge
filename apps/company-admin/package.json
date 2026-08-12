@@ -1,0 +1,48 @@
+{
+  "name": "@forge/company-admin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "typecheck": "next typegen && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@forge/api-client": "workspace:*",
+    "@forge/shared": "workspace:*",
+    "@forge/theme": "workspace:*",
+    "next": "16.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1"
+  },
+  "_server-only": [
+    "Makes the server/client boundary a BUILD error rather than a review question: importing",
+    "lib/session.ts, lib/api.ts or lib/dal.ts from a client component fails to compile, so a",
+    "token that can reach every tenant on the platform cannot end up in the browser bundle.",
+    "Not a comment key inside `dependencies` — pnpm resolves those as real packages."
+  ],
+  "devDependencies": {
+    "@forge/eslint-config": "workspace:*",
+    "@forge/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4",
+    "typescript": "catalog:",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.10"
+  }
+}

@@ -79,6 +79,22 @@ export const envSchema = z
     JWT_ACCESS_TTL: seconds.default(900),
     JWT_REFRESH_TTL: seconds.default(2_592_000),
 
+    /**
+     * Company admin console session lifetimes. Separate from the member app's on purpose.
+     *
+     * Thirty days of silent refresh is the right answer for a phone in a member's pocket:
+     * the alternative is an SMS code every month to check into a gym. It is the wrong answer
+     * for a console that can reach every tenant on the platform, where a laptop left open in
+     * a cafe should stop being a valid session the same day.
+     *
+     * Twelve hours is a working day plus slack, so an administrator signs in roughly once a
+     * day rather than being bounced to an OTP screen mid-task. The secrets are shared with
+     * the member tokens; the `aud` claim is what keeps the two apart, not a third key —
+     * another secret to rotate would be more moving parts for no additional property.
+     */
+    JWT_CONSOLE_ACCESS_TTL: seconds.default(900),
+    JWT_CONSOLE_REFRESH_TTL: seconds.default(43_200),
+
     // ---- OTP delivery (MSG91) -----------------------------------------------------
     // Optional here and required in production by the superRefine below, because DLT
     // approval takes 1-3 weeks and every other part of auth has to be buildable meanwhile.
@@ -103,6 +119,31 @@ export const envSchema = z
      */
     OTP_MAX_PER_PHONE: z.coerce.number().int().positive().default(3),
     OTP_MAX_PER_IP: z.coerce.number().int().positive().default(10),
+
+    /**
+     * The same dials for the company admin console, counted in their own Redis buckets.
+     *
+     * Separate rather than shared because the two surfaces fail in opposite directions.
+     * A shared per-IP bucket punishes administrators for sitting behind one office NAT with
+     * the whole member population's traffic — and, worse, lets anyone who knows an
+     * administrator's number exhaust their per-phone budget from the public member endpoint
+     * and lock them out of the console during an incident.
+     *
+     * The per-phone allowance is deliberately a little higher than the member one: an
+     * administrator being paged at 3am gets more than three attempts to receive a code on a
+     * bad network. The per-IP allowance is what actually bounds abuse here, since there are
+     * only ever a handful of legitimate numbers.
+     */
+    ADMIN_OTP_MAX_PER_PHONE: z.coerce.number().int().positive().default(5),
+    ADMIN_OTP_MAX_PER_IP: z.coerce.number().int().positive().default(20),
+
+    /**
+     * How long a console invite stays usable when the caller does not say.
+     *
+     * Bounded at the contract level too (1 hour to 14 days, see admin-auth.contract.ts).
+     * This is only the default a console form gets for free.
+     */
+    ADMIN_INVITE_TTL_HOURS: z.coerce.number().int().min(1).max(336).default(72),
 
     /**
      * Global request floor, per IP. Same reasoning as the OTP limits: an operational dial
@@ -176,6 +217,34 @@ export const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['JWT_ACCESS_TTL'],
         message: 'must not outlive JWT_REFRESH_TTL',
+      });
+    }
+
+    // Same invariant on the console pair. An access token outliving the refresh token it is
+    // renewed by produces a session that 401s with nothing able to fix it.
+    if (env.JWT_CONSOLE_ACCESS_TTL > env.JWT_CONSOLE_REFRESH_TTL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_CONSOLE_ACCESS_TTL'],
+        message: 'must not outlive JWT_CONSOLE_REFRESH_TTL',
+      });
+    }
+
+    /**
+     * The console must not be the LONGER-lived session.
+     *
+     * If someone raises the console refresh TTL past the member one while tuning something
+     * else, the surface that can see every tenant quietly becomes the one that stays signed
+     * in longest — the exact inversion the split TTLs exist to prevent. It is caught at boot
+     * because nothing else would ever surface it.
+     */
+    if (env.JWT_CONSOLE_REFRESH_TTL > env.JWT_REFRESH_TTL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_CONSOLE_REFRESH_TTL'],
+        message:
+          'must not exceed JWT_REFRESH_TTL — the company admin console reaches every tenant, ' +
+          'so its sessions must not outlive the member apps',
       });
     }
 

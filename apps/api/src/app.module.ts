@@ -15,6 +15,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { ClientVersionGuard } from './common/guards/client-version.guard';
 import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor';
+import { AdminAuthModule } from './modules/admin-auth/admin-auth.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { RedisModule } from './redis/redis.module';
@@ -56,6 +57,9 @@ import { HealthModule } from './modules/health/health.module';
     DatabaseModule,
     RedisModule,
     AuthModule,
+    // After AuthModule: it reuses that module's OTP and token services rather than
+    // reimplementing the hard parts of either.
+    AdminAuthModule,
     AppConfigModule,
 
     /**

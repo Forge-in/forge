@@ -7,12 +7,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ErrorCode, Role } from '@forge/shared';
+import { ErrorCode, Role, TokenAudience } from '@forge/shared';
 import { eq, memberships, resolveAccessibleGyms, withTenantRead } from '@forge/db';
 import type { Request } from 'express';
 import { ClsService } from 'nestjs-cls';
 
-import { IS_PUBLIC_KEY } from '../decorators/auth.decorators';
+import { AUDIENCE_KEY, IS_PUBLIC_KEY } from '../decorators/auth.decorators';
 import { CLS_KEYS } from '../request-context';
 import { TokenService } from '../../modules/auth/token.service';
 
@@ -50,8 +50,19 @@ export class JwtAuthGuard implements CanActivate {
       );
     }
 
-    // Throws TOKEN_EXPIRED or UNAUTHENTICATED with the right envelope code.
-    const payload = await this.tokens.verifyAccess(token);
+    /**
+     * Which surface this route belongs to. Defaults to the member product, so only the
+     * console controllers carry a marker — see @Audience in auth.decorators.
+     */
+    const audience =
+      this.reflector.getAllAndOverride<TokenAudience | undefined>(AUDIENCE_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? TokenAudience.APP;
+
+    // Throws TOKEN_EXPIRED or UNAUTHENTICATED with the right envelope code, and rejects a
+    // token minted for the other surface.
+    const payload = await this.tokens.verifyAccess(token, audience);
 
     /**
      * The inversion that must never happen.

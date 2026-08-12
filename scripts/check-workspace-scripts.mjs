@@ -30,8 +30,8 @@ const REQUIRED_ALWAYS = ['lint', 'typecheck', 'test'];
  * RSC boundary violations, bad "use client" placement, or invalid route exports.
  */
 const REQUIRED_BUILD = [
-  'apps/admin',
-  'apps/owner-web',
+  'apps/company-admin',
+  'apps/gym-owner',
   'apps/api',
   'packages/shared',
   // Emits CommonJS for the same reason as @forge/shared: the API runs as `node dist/main`

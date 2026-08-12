@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
   ErrorCode,
+  TokenAudience,
   TokenType,
   type AccessTokenPayload,
   type RefreshTokenPayload,
@@ -62,6 +63,12 @@ export interface SessionClaims {
   membershipId: string | null;
 }
 
+/** Access and refresh lifetimes for one surface. See ttlsFor(). */
+interface AudienceTtls {
+  access: number;
+  refresh: number;
+}
+
 @Injectable()
 export class TokenService {
   private readonly logger = new Logger(TokenService.name);
@@ -95,23 +102,63 @@ export class TokenService {
     return `auth:rotating:${jti}`;
   }
 
+  /**
+   * Cut-off timestamp for one user's sessions. Everything issued at or before it is dead.
+   *
+   * This is what makes suspending an administrator take effect NOW rather than within an
+   * access-token lifetime. Revoking the refresh family alone stops the session being
+   * renewed, but the access token already in the suspended person's browser keeps working
+   * until it expires — which for a console that can suspend a gym or change a plan is a
+   * window nobody wants to explain afterwards.
+   *
+   * One Redis GET per authenticated request buys instant revocation across every device the
+   * user has, without tracking a set of families or a list of live jtis.
+   */
+  private userEpochKey(userId: string): string {
+    return `auth:user-epoch:${userId}`;
+  }
+
   private hash(value: string): string {
     return createHash('sha256').update(value).digest('hex');
   }
 
-  /** Issues a fresh pair and starts a new token family. */
-  async issue(claims: SessionClaims): Promise<IssuedTokens> {
-    return this.mint(claims, randomUUID());
+  /**
+   * TTLs differ per surface, and the difference is the point.
+   *
+   * Thirty days of silent refresh is right for a phone in someone's pocket: the alternative
+   * is an OTP every month for a member checking into a gym. It is wrong for a console that
+   * can reach every tenant on the platform — there, a laptop left open in a cafe should stop
+   * being a valid session the same day, not next month.
+   */
+  private ttlsFor(audience: TokenAudience): AudienceTtls {
+    return audience === TokenAudience.CONSOLE
+      ? {
+          access: this.config.get('JWT_CONSOLE_ACCESS_TTL', { infer: true }),
+          refresh: this.config.get('JWT_CONSOLE_REFRESH_TTL', { infer: true }),
+        }
+      : {
+          access: this.config.get('JWT_ACCESS_TTL', { infer: true }),
+          refresh: this.config.get('JWT_REFRESH_TTL', { infer: true }),
+        };
   }
 
-  private async mint(claims: SessionClaims, family: string): Promise<IssuedTokens> {
-    const accessTtl = this.config.get('JWT_ACCESS_TTL', { infer: true });
-    const refreshTtl = this.config.get('JWT_REFRESH_TTL', { infer: true });
+  /** Issues a fresh pair and starts a new token family. */
+  async issue(claims: SessionClaims, audience: TokenAudience): Promise<IssuedTokens> {
+    return this.mint(claims, randomUUID(), audience);
+  }
+
+  private async mint(
+    claims: SessionClaims,
+    family: string,
+    audience: TokenAudience,
+  ): Promise<IssuedTokens> {
+    const { access: accessTtl, refresh: refreshTtl } = this.ttlsFor(audience);
 
     const accessPayload: AccessTokenPayload = {
       sub: claims.userId,
       jti: randomUUID(),
       typ: TokenType.ACCESS,
+      aud: audience,
       studioId: claims.studioId,
       role: claims.role,
       membershipId: claims.membershipId,
@@ -121,6 +168,7 @@ export class TokenService {
       sub: claims.userId,
       jti: randomUUID(),
       typ: TokenType.REFRESH,
+      aud: audience,
       fam: family,
       studioId: claims.studioId,
       membershipId: claims.membershipId,
@@ -144,8 +192,15 @@ export class TokenService {
     return { accessToken, refreshToken, expiresInSeconds: accessTtl };
   }
 
-  /** Verifies an access token. Throws the envelope codes clients branch on. */
-  async verifyAccess(token: string): Promise<AccessTokenPayload> {
+  /**
+   * Verifies an access token for a SPECIFIC surface. Throws the envelope codes clients
+   * branch on.
+   *
+   * The audience is a required argument rather than an optional filter, so adding a new
+   * verification call site forces a decision about which surface it serves. An optional
+   * parameter would default to "any", and the default is what ships.
+   */
+  async verifyAccess(token: string, audience: TokenAudience): Promise<AccessTokenPayload> {
     let payload: AccessTokenPayload;
 
     try {
@@ -177,9 +232,37 @@ export class TokenService {
       );
     }
 
+    /**
+     * The surface check. A console token presented to the member API — or a member's token
+     * presented to the console — is rejected here, before anything reads its role.
+     *
+     * Deliberately NOT a 403 and deliberately not a distinct message: telling the caller
+     * "wrong audience" confirms they are holding a valid token for some other surface, which
+     * is a useful hint to someone probing with a credential they should not have.
+     */
+    if (payload.aud !== audience) {
+      this.logger.warn({
+        event: 'auth.audience_mismatch',
+        expected: audience,
+        presented: payload.aud,
+        userId: payload.sub,
+      });
+      throw new HttpException(
+        { code: ErrorCode.UNAUTHENTICATED, message: 'Invalid credentials.' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
     if (await this.isRevoked(payload.jti)) {
       throw new HttpException(
         { code: ErrorCode.UNAUTHENTICATED, message: 'Session has been revoked.' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    if (await this.isBeforeUserEpoch(payload.sub, payload.iat)) {
+      throw new HttpException(
+        { code: ErrorCode.UNAUTHENTICATED, message: 'Your access has changed. Sign in again.' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -201,6 +284,7 @@ export class TokenService {
    */
   async rotate(
     refreshToken: string,
+    audience: TokenAudience,
     resolveClaims: (payload: RefreshTokenPayload) => Promise<SessionClaims>,
   ): Promise<IssuedTokens> {
     let payload: RefreshTokenPayload;
@@ -217,9 +301,39 @@ export class TokenService {
       throw this.unauthenticated('Invalid credentials.');
     }
 
+    /**
+     * The audience check matters MORE here than on the access path.
+     *
+     * Both refresh endpoints are necessarily public — they are reached precisely when there
+     * is no valid access token — so they are the cheapest place to try a token and see what
+     * comes back. Without this, a member's refresh token posted to the console's endpoint
+     * would be a genuine attempt to have the console mint a session from it.
+     */
+    if (payload.aud !== audience) {
+      this.logger.warn({
+        event: 'auth.refresh_audience_mismatch',
+        expected: audience,
+        presented: payload.aud,
+        userId: payload.sub,
+      });
+      throw this.unauthenticated('Invalid credentials.');
+    }
+
     // The whole family may already have been revoked by a logout or by an earlier reuse.
     if (!(await this.redis.exists(this.familyKey(payload.fam)))) {
       throw this.unauthenticated('Session has ended. Please sign in again.');
+    }
+
+    /**
+     * Checked BEFORE the grace window, unlike everything else in this method.
+     *
+     * The grace window exists to be forgiving of a racing client, and forgiveness is exactly
+     * wrong for a revoked user: a suspended administrator's parallel refresh must not be
+     * handed the successor a moment-earlier refresh produced. This is the one condition
+     * where "several requests arrived at once" is not a reason to let any of them through.
+     */
+    if (await this.isBeforeUserEpoch(payload.sub, payload.iat)) {
+      throw this.unauthenticated('Your access has changed. Sign in again.');
     }
 
     /**
@@ -282,7 +396,7 @@ export class TokenService {
     // Authoritative claims come from the database, never from the presented token — a
     // token cannot be trusted to describe the permissions it should now carry.
     const claims = await resolveClaims(payload);
-    const next = await this.mint(claims, payload.fam);
+    const next = await this.mint(claims, payload.fam, audience);
 
     const record: RotationRecord = {
       successorJti: this.hash(next.refreshToken).slice(0, 32),
@@ -298,7 +412,9 @@ export class TokenService {
         'EX',
         SUCCESSOR_GRACE_SECONDS,
       ),
-      this.revoke(payload.jti, this.config.get('JWT_REFRESH_TTL', { infer: true })),
+      // Held for this audience's refresh lifetime — long enough that the spent token can
+      // never come back, and no longer, since after that it fails signature verification.
+      this.revoke(payload.jti, this.ttlsFor(audience).refresh),
     ]);
 
     return next;
@@ -345,6 +461,59 @@ export class TokenService {
 
   async isRevoked(jti: string): Promise<boolean> {
     return (await this.redis.exists(this.revokedKey(jti))) === 1;
+  }
+
+  /**
+   * Kills EVERY live session for one user, on every device, immediately.
+   *
+   * Used when access is taken away rather than given up: suspending a platform admin. Family
+   * revocation alone cannot do this — it needs the family id, which means enumerating the
+   * user's sessions, which means storing them. A single cut-off timestamp achieves the same
+   * thing with one key and no bookkeeping to drift.
+   *
+   * The TTL is the longest refresh lifetime of any surface: past that point no token signed
+   * before now can still verify, so the key has nothing left to say.
+   */
+  async revokeAllForUser(userId: string): Promise<void> {
+    const longestRefresh = Math.max(
+      this.config.get('JWT_REFRESH_TTL', { infer: true }),
+      this.config.get('JWT_CONSOLE_REFRESH_TTL', { infer: true }),
+    );
+
+    await this.redis.set(
+      this.userEpochKey(userId),
+      Math.floor(Date.now() / 1000).toString(),
+      'EX',
+      longestRefresh,
+    );
+  }
+
+  /** Clears the cut-off, so a reinstated user can sign in again. */
+  async clearUserRevocation(userId: string): Promise<void> {
+    await this.redis.del(this.userEpochKey(userId));
+  }
+
+  /**
+   * True when this token predates the user's revocation cut-off.
+   *
+   * Two details that decide whether this is a real control or a decorative one:
+   *
+   *   - `<=`, not `<`. JWT `iat` has one-second resolution, so a token signed in the same
+   *     second as the revocation would survive a strict comparison. The only token that can
+   *     legitimately be issued in that second belongs to a user who is being revoked, so
+   *     rejecting it is both safe and correct.
+   *   - A MISSING `iat` is treated as revoked. Every token this service signs has one; a
+   *     token without it is either forged or from a signer we do not control, and "no
+   *     timestamp" must never mean "cannot be older than the cut-off".
+   */
+  private async isBeforeUserEpoch(userId: string, issuedAt: number | undefined): Promise<boolean> {
+    const raw = await this.redis.get(this.userEpochKey(userId));
+    if (!raw) return false;
+
+    const epoch = Number(raw);
+    if (!Number.isFinite(epoch)) return true;
+
+    return issuedAt === undefined || issuedAt <= epoch;
   }
 
   /** Decodes without verifying, for logout where an expired token is still actionable. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Role } from './roles.js';
-import { TokenType, isStudioScoped, type AccessTokenPayload } from './token.js';
+import { TokenAudience, TokenType, isStudioScoped, type AccessTokenPayload } from './token.js';
 
 describe('TokenType', () => {
   /**
@@ -16,8 +16,26 @@ describe('TokenType', () => {
   });
 });
 
+describe('TokenAudience', () => {
+  /**
+   * The member product and the company admin console are separate surfaces. A token minted
+   * for one must be worthless on the other, so that a console credential leaking anywhere
+   * — a proxy log, an error report — does not become a working key to the whole product API.
+   */
+  it('separates the member product from the company admin console', () => {
+    expect(TokenAudience.APP).toBe('app');
+    expect(TokenAudience.CONSOLE).toBe('console');
+    expect(TokenAudience.APP).not.toBe(TokenAudience.CONSOLE);
+  });
+});
+
 describe('isStudioScoped', () => {
-  const base = { sub: 'usr_1', jti: 'jti_1', typ: TokenType.ACCESS } as const;
+  const base = {
+    sub: 'usr_1',
+    jti: 'jti_1',
+    typ: TokenType.ACCESS,
+    aud: TokenAudience.APP,
+  } as const;
 
   it('is true for an ordinary tenant-scoped session', () => {
     const payload: AccessTokenPayload = {
@@ -38,6 +56,7 @@ describe('isStudioScoped', () => {
   it('is false when there is no studio, so a null can never mean "all studios"', () => {
     const payload: AccessTokenPayload = {
       ...base,
+      aud: TokenAudience.CONSOLE,
       studioId: null,
       membershipId: null,
       role: Role.PLATFORM_ADMIN,

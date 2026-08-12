@@ -136,7 +136,7 @@ describe('client version enforcement (e2e)', () => {
       await http()
         .get('/healthz')
         .set({
-          'x-client-app': 'owner-web',
+          'x-client-app': 'gym-owner',
           'x-client-version': '0.0.1',
           'x-client-platform': 'web',
         })

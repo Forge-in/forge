@@ -29,6 +29,20 @@
       "when": 1786487371528,
       "tag": "0003_auth_membership_lookup",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786554013286,
+      "tag": "0004_platform_admins",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786554014286,
+      "tag": "0005_platform_admin_policies",
+      "breakpoints": true
     }
   ]
 }

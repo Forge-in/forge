@@ -48,10 +48,11 @@ describe('role vocabulary', () => {
   });
 
   it('is the single source of truth — the admin console must not invent its own roles', () => {
-    // apps/admin currently ships TEAM_ROLES (Superadmin, Ops, Finance, ...) for a display
-    // table. That is a different concept from platform authorization and must never be
-    // used to gate an endpoint. This assertion documents the boundary: these four strings,
-    // and only these, are authorization roles.
+    // apps/company-admin used to ship TEAM_ROLES (Superadmin, Ops, Finance, ...) for a
+    // display table — role names that looked like authorization and were not. They are gone;
+    // /team now renders the real platform_admins table, where every admin holds the same
+    // single role. This assertion is what keeps that honest: these four strings, and only
+    // these, are authorization roles, and a display label must never become a fifth.
     expect(Object.values(Role)).toEqual(['platform_admin', 'gym_owner', 'trainer', 'gym_user']);
   });
 });

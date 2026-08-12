@@ -76,7 +76,9 @@ describe('buildLoggerConfig redaction', () => {
         url: '/api/v1/auth/verify',
         headers: {
           authorization: 'Bearer eyJhbGciOi.secrettoken',
-          cookie: 'wc_session=abc123',
+          // The console session cookie holds a real bearer token for a platform admin —
+          // the single most valuable credential in the system to find in a log aggregator.
+          cookie: 'forge_console_rt=abc123',
           'x-razorpay-signature': 'deadbeefsignature',
         },
       },

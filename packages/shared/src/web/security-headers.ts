@@ -2,7 +2,7 @@
  * Baseline response headers for every Forge web surface.
  *
  * Lives here rather than in one app's next.config because it was already duplicated-by-
- * omission: the admin console had these and owner-web served none, so the gym owner
+ * omission: company-admin had these and gym-owner served none, so the gym owner
  * dashboard — which can change staff access and billing details — was framable. A single
  * exported list means a new web app inherits the baseline instead of forgetting it.
  *

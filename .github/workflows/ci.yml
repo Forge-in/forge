@@ -128,6 +128,9 @@ jobs:
       # per-phone limit stays at its default and IS asserted end to end, because each
       # test uses a fresh number.
       OTP_MAX_PER_IP: '100000'
+      # The console keeps its own per-IP bucket, so it needs its own headroom for the same
+      # reason. Its per-phone limit likewise stays at the default and is asserted.
+      ADMIN_OTP_MAX_PER_IP: '100000'
       THROTTLE_PER_SECOND: '10000'
       THROTTLE_PER_MINUTE: '100000'
 

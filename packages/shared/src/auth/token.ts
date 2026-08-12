@@ -17,6 +17,32 @@ export const TokenType = {
 
 export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
+/**
+ * WHICH SURFACE a session belongs to. Not the same question as `role`.
+ *
+ * `app` is the member-facing product: the two mobile apps and the gym owner dashboard.
+ * `console` is the company admin dashboard, which can reach every tenant on the platform.
+ *
+ * Roles alone would nearly separate these, since only a platform_admin can hold a console
+ * session — but "nearly" is the problem. Without an explicit audience, a console token is
+ * just a bearer token that happens to say platform_admin, so anywhere one leaks (a proxy
+ * log, a browser extension, an error report) it is immediately usable against the whole
+ * product API. Pinning the audience means a leaked console token is useless outside the
+ * console, and a member's token is useless against it — including on the refresh endpoints,
+ * which are public by necessity and therefore the easiest place to try.
+ *
+ * The two surfaces also want different session lifetimes: thirty days of silent refresh is
+ * right for a phone in someone's pocket and wrong for a console that can suspend a gym.
+ * Separate audiences are what let those TTLs differ without one config leaking into the
+ * other.
+ */
+export const TokenAudience = {
+  APP: 'app',
+  CONSOLE: 'console',
+} as const;
+
+export type TokenAudience = (typeof TokenAudience)[keyof typeof TokenAudience];
+
 interface BaseTokenPayload {
   /** User id. Global — identity is one row per phone across all of Forge. */
   sub: string;
@@ -26,6 +52,15 @@ interface BaseTokenPayload {
    */
   jti: string;
   typ: TokenType;
+  /**
+   * Required, never optional.
+   *
+   * An optional audience forces every verifier to pick a default for a token that does not
+   * declare one, and the only convenient default is "allow" — which turns the whole claim
+   * into decoration. A token that cannot say which surface it is for is a token that does
+   * not verify.
+   */
+  aud: TokenAudience;
   /** Seconds since epoch, set by the signer. */
   iat?: number;
   exp?: number;
