@@ -1,2 +1,66 @@
-# Both founders review everything for now.
-* @founder-one @founder-two
+# Review ownership.
+#
+# WHY THIS FILE IS WORTH GETTING EXACTLY RIGHT: GitHub SILENTLY IGNORES an owner it cannot
+# resolve. There is no build failure and no warning in the PR — the rule simply does nothing.
+# This file previously read `* @founder-one @founder-two`, neither of which is a real account,
+# so it was completely inert while looking like a working policy.
+#
+# Two more conditions, both easy to miss:
+#   1. An owner must have WRITE access to this repo, or the entry is ignored.
+#   2. CODEOWNERS only AUTO-REQUESTS review. Blocking a merge on it requires branch protection
+#      with "Require review from Code Owners" — which on a private repo needs GitHub Team.
+#      Without that plan, everything here is advisory.
+#
+# HOW TO VERIFY: open this file on github.com. GitHub renders an error banner listing any
+# owner it could not resolve. A clean render is the only proof the rules are live.
+#
+# TODO(satyam): replace the email below with @handle once confirmed. Emails are valid in
+# CODEOWNERS, but ONLY when the address is the one GitHub has on file for that account —
+# a personal address that is not verified on the GitHub profile resolves to nobody and is
+# ignored, exactly like the placeholders this file used to contain. Shivam's handle was
+# recovered from his commit noreply address; Satyam has never committed with one, so his
+# could not be derived and is deliberately not guessed.
+#
+# Better long-term: create a `@Forge-in/founders` team in the org and use that. A team
+# survives someone changing their username, which an @handle does not.
+
+# Default: both founders review everything. Two people, so this is not a bottleneck yet.
+*                                   @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# ---------------------------------------------------------------------------------------
+# Paths where a mistake is expensive or irreversible.
+#
+# These are listed AFTER the catch-all because CODEOWNERS is last-match-wins — a rule placed
+# above `*` would be silently overridden by it.
+# ---------------------------------------------------------------------------------------
+
+# Migrations are applied once and forward-only in practice. A destructive statement here
+# reaches production data.
+/packages/db/migrations/            @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# The tenant wall. Schema changes decide whether a new table is studio-scoped at all, and
+# assert-tenancy.sql is the guard that catches it when it is not.
+/packages/db/src/schema/            @Shivamt7 satyam.s.mishra.13@gmail.com
+/packages/db/sql/                   @Shivamt7 satyam.s.mishra.13@gmail.com
+/scripts/db/                        @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# Row-level security policies and the two database roles. The single highest-stakes code in
+# the repo: a mistake here is a cross-tenant data leak with no symptoms.
+/packages/db/src/tenant.ts          @Shivamt7 satyam.s.mishra.13@gmail.com
+/packages/db/src/access.ts          @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# Auth. Phone OTP is the only way into Forge — there is no password behind it.
+/apps/api/src/modules/auth/         @Shivamt7 satyam.s.mishra.13@gmail.com
+/apps/api/src/common/guards/        @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# Boot-time environment contract. A wrong default here can sign tokens with `undefined`.
+/apps/api/src/config/               @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# The contract five client apps share. A breaking change here breaks installed mobile builds
+# that cannot be force-updated instantly.
+/packages/shared/                   @Shivamt7 satyam.s.mishra.13@gmail.com
+
+# CI is what makes every other rule in this repo enforceable.
+/.github/                           @Shivamt7 satyam.s.mishra.13@gmail.com
+/scripts/                           @Shivamt7 satyam.s.mishra.13@gmail.com
+/turbo.json                         @Shivamt7 satyam.s.mishra.13@gmail.com
