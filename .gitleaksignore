@@ -23,3 +23,12 @@
 # mean the same false positive returning under a new fingerprint the next time that file is
 # touched.
 a9223a8b7d8242f4c94245a8b52a735d993a867c:apps/api/README.md:generic-api-key:5
+
+# This file's own first version, which quoted the value above while explaining it — see the
+# warning at the top. The text is gone from the current file, but it stays in that commit,
+# and history is what gitleaks reads.
+#
+# Ignored rather than rebased away on purpose: the value is a framework's sample text, and
+# rewriting a pushed branch's history to silence a false positive costs more than it buys.
+# Fingerprints are the mechanism for exactly this.
+cd4b69a59025aa0140e762408306171e1207e5a0:.gitleaksignore:generic-api-key:12
