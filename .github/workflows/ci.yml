@@ -188,30 +188,44 @@ jobs:
           # tip. Secret hygiene in this repo is currently clean; this keeps it that way.
           fetch-depth: 0
 
+      # The gitleaks CLI, not gitleaks-action@v2.
+      #
+      # The ACTION requires a licence key for organisation-owned repositories — "if you are
+      # scanning repos that belong to an organization account, you will need to obtain a free
+      # license key" — and Forge-in is an organisation, so it failed before scanning
+      # anything. The CLI it wraps is plain MIT and has no such condition.
+      #
+      # Same scan, one fewer third-party secret to hold. Pinned rather than :latest so a
+      # release upstream cannot change what CI enforces without a reviewed diff here.
       - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          ASSET="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ASSET}"
 
-      # Blocks a lockfile bump that pulls in a known-vulnerable transitive dependency.
-      # PR-only: it diffs against the base ref, so there is nothing to compare on push.
-      - name: Review dependency changes
-        if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          curl -sSfL "$URL" | tar -xz -C "$RUNNER_TEMP/gitleaks" gitleaks
 
-  # Squash-merge uses the PR TITLE as the commit message, which bypasses the commit-msg
-  # commitlint hook entirely. Without this check, main's history drifts out of Conventional
-  # Commits and any future changelog generation silently produces garbage.
-  pr-title:
-    name: PR title
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - name: Lint the PR title as a conventional commit
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: echo "$PR_TITLE" | pnpm commitlint
+          # --redact so a finding never prints the secret itself into a log that is far more
+          # widely readable than the commit it came from.
+          "$RUNNER_TEMP/gitleaks/gitleaks" detect --redact --verbose --exit-code 1
+
+      # REMOVED: actions/dependency-review-action.
+      #
+      # It is "available for: Public repositories; Private repositories with a GitHub
+      # Advanced Security license". This repository is private and has neither, so the step
+      # could never pass — it was failing the whole Security job before gitleaks even ran.
+      #
+      # The coverage is not gone, it moved: enable Dependabot alerts in repository settings,
+      # which are free on private repositories and watch the same advisory database. They
+      # report asynchronously rather than blocking a PR, which is the trade this plan forces.
+      #
+      # `pnpm audit --audit-level high` was considered as a blocking replacement and is the
+      # right long-term answer, but it currently reports 4 high advisories reaching us
+      # transitively through next/postcss. Turning it on today would wire a red X to findings
+      # nobody has triaged yet; triage first, then gate on it.
+
+  # The PR title check lives in .github/workflows/pr-title.yml — it needs the `edited`
+  # trigger, which this workflow deliberately does not have.

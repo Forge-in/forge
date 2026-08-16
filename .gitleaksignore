@@ -1,0 +1,19 @@
+# Findings gitleaks should stop reporting, each with the reason it is safe.
+#
+# THE BAR FOR ADDING A LINE HERE: you have opened the commit, read the value, and can say
+# what it is. "The build is red and I want it green" is not a reason — a secret scanner that
+# people silence by reflex is worse than none, because it converts a real leak into a
+# one-line diff nobody reads.
+#
+# A fingerprint is commit:path:rule:line. It pins the finding to one commit, so this cannot
+# accidentally hide the same pattern appearing somewhere new.
+
+# NestJS scaffold boilerplate. `nest new` ships a README with CircleCI badge link
+# definitions containing the literal placeholder `token=abc123def456` — sample text from the
+# framework's own template, not a credential, and never ours. It reached us in the initial
+# scaffold commit and cannot be removed from history without a rewrite.
+#
+# The lines themselves are now deleted from apps/api/README.md: they were unreferenced link
+# definitions (the badge on line 13 links directly), so leaving them would only mean the
+# same false positive returning under a new fingerprint the next time that file is touched.
+a9223a8b7d8242f4c94245a8b52a735d993a867c:apps/api/README.md:generic-api-key:5
