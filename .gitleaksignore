@@ -7,13 +7,19 @@
 #
 # A fingerprint is commit:path:rule:line. It pins the finding to one commit, so this cannot
 # accidentally hide the same pattern appearing somewhere new.
+#
+# NEVER QUOTE THE FLAGGED VALUE IN THESE COMMENTS. This file is committed, so anything
+# written here becomes part of the history gitleaks scans — the first version of this file
+# reproduced the placeholder it was explaining, and gitleaks duly flagged the explanation.
+# Describe the finding; do not repeat it.
 
-# NestJS scaffold boilerplate. `nest new` ships a README with CircleCI badge link
-# definitions containing the literal placeholder `token=abc123def456` — sample text from the
-# framework's own template, not a credential, and never ours. It reached us in the initial
-# scaffold commit and cannot be removed from history without a rewrite.
+# NestJS scaffold boilerplate. `nest new` ships a README carrying CircleCI badge link
+# definitions whose URL ends in a query parameter holding an obvious dummy value — sample
+# text from the framework's own template, never a credential of ours. It arrived in the
+# initial scaffold commit and cannot be removed from history without a rewrite.
 #
 # The lines themselves are now deleted from apps/api/README.md: they were unreferenced link
-# definitions (the badge on line 13 links directly), so leaving them would only mean the
-# same false positive returning under a new fingerprint the next time that file is touched.
+# definitions (the badge further down the file links directly), so leaving them would only
+# mean the same false positive returning under a new fingerprint the next time that file is
+# touched.
 a9223a8b7d8242f4c94245a8b52a735d993a867c:apps/api/README.md:generic-api-key:5
