@@ -51,6 +51,17 @@
         "LOG_LEVEL",
         "OTP_MAX_PER_PHONE",
         "OTP_MAX_PER_IP",
+        // The console keeps its own OTP buckets, so it needs its own headroom in CI for the
+        // same reason: every request there comes from 127.0.0.1, and the production per-IP
+        // default of 20 blocks the admin suite part-way through.
+        //
+        // Missing entries here fail in a genuinely confusing way. Turbo filters the
+        // environment, so a variable set in the workflow but absent from this list simply
+        // never reaches the process — the API silently falls back to its default and the
+        // symptom is a 429 in a test that has nothing to do with rate limiting. Running
+        // jest directly hides it completely, because that path bypasses turbo.
+        "ADMIN_OTP_MAX_PER_PHONE",
+        "ADMIN_OTP_MAX_PER_IP",
         "THROTTLE_PER_SECOND",
         "THROTTLE_PER_MINUTE"
       ]
