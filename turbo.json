@@ -1,11 +1,79 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": [".env"],
+
+  // `.env` is git-ignored, so it does not exist in CI. Listing it here meant local and CI
+  // could never share a cache entry, and every local secret tweak invalidated every task.
+  // `.env.example` is the committed contract, so hashing that is both meaningful and portable.
+  "globalDependencies": [".env.example", ".nvmrc"],
+  "globalPassThroughEnv": ["CI", "TURBO_TOKEN", "TURBO_TEAM"],
+
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**"] },
-    "dev": { "cache": false, "persistent": true },
-    "lint": {},
+    "build": {
+      "dependsOn": ["^build"],
+      // .next/cache is a local incremental-build artifact. Without this exclusion it gets
+      // uploaded to the remote cache on every run — slow, large, and useless to other machines.
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+
+    // `dev` depends on `^build` so `@forge/shared` is compiled before anything consumes it.
+    // This is the fix for the stale-dist footgun in README § "@forge/shared is a built package":
+    // running a single app filtered used to leave clients type-checking against an old dist.
+    "dev": { "dependsOn": ["^build"], "cache": false, "persistent": true },
+
+    // The nest ESLint preset uses type-aware rules (recommendedTypeChecked). Without
+    // @forge/shared/dist present, those rules silently degrade to "type could not be resolved"
+    // rather than failing loudly — the exact failure the README documents for typecheck/test.
+    "lint": { "dependsOn": ["^build"] },
+    "lint:fix": { "dependsOn": ["^build"], "cache": false },
+
     "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"], "outputs": ["coverage/**"] }
+
+    "test": { "dependsOn": ["^build"], "outputs": ["coverage/**"] },
+
+    // Needs its own app built (not just dependencies) because it boots the real Nest app
+    // against real Postgres/Redis. Never cached: the result depends on external services.
+    //
+    // passThroughEnv, not env: these are connection strings, so they must reach the task
+    // WITHOUT being mixed into the cache key — otherwise every developer's local password
+    // would produce a different hash. Safe here precisely because the task is uncached.
+    "test:e2e": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "DATABASE_READ_URL",
+        "DATABASE_MIGRATION_URL",
+        "REDIS_URL",
+        "NODE_ENV",
+        "JWT_ACCESS_SECRET",
+        "JWT_REFRESH_SECRET",
+        "CORS_ORIGINS",
+        "LOG_LEVEL",
+        "OTP_MAX_PER_PHONE",
+        "OTP_MAX_PER_IP",
+        // The console keeps its own OTP buckets, so it needs its own headroom in CI for the
+        // same reason: every request there comes from 127.0.0.1, and the production per-IP
+        // default of 20 blocks the admin suite part-way through.
+        //
+        // Missing entries here fail in a genuinely confusing way. Turbo filters the
+        // environment, so a variable set in the workflow but absent from this list simply
+        // never reaches the process — the API silently falls back to its default and the
+        // symptom is a 429 in a test that has nothing to do with rate limiting. Running
+        // jest directly hides it completely, because that path bypasses turbo.
+        "ADMIN_OTP_MAX_PER_PHONE",
+        "ADMIN_OTP_MAX_PER_IP",
+        "THROTTLE_PER_SECOND",
+        "THROTTLE_PER_MINUTE"
+      ]
+    },
+
+    // Integration tests against a real migrated database. Separate from `test` so a
+    // laptop with nothing running can still run the unit suite, and never cached because
+    // the result depends on the state of an external server rather than on the inputs.
+    "test:int": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "DATABASE_READ_URL", "DATABASE_MIGRATION_URL"]
+    }
   }
 }

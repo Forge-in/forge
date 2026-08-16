@@ -2,25 +2,230 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Only collapse superseded PR runs. A push to main may be mid-deploy, and cancelling
+  # that run leaves you unable to tell whether main is green.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege by default; jobs opt into more where they need it.
+permissions:
+  contents: read
 
 jobs:
+  # One job rather than four. Turbo already parallelises across workspaces, so splitting
+  # would pay `pnpm install` four times to save a few seconds. `--continue` means a lint
+  # failure does not hide a typecheck failure — you get every problem in one run.
   verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
+
+      # `build` is the addition that matters most. `tsc --noEmit` does not catch Next.js
+      # RSC boundary violations, misplaced "use client", or invalid route exports — a PR
+      # could be fully green here and still fail to build.
+      - run: pnpm turbo run lint typecheck test build --continue
+
+      # `turbo run lint` only reaches workspaces. These are the files outside all of
+      # them — including the guardrail scripts the `guardrails` job depends on.
+      - run: pnpm lint:repo
+
+      # Root-level and repo-wide, so it is a plain script rather than a turbo task.
+      # Prevents the Prettier churn on untouched lines that makes review useless.
+      - run: pnpm format:check
+
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
+          name: coverage
+          path: '**/coverage/lcov.info'
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Structural invariants that a linter cannot express. Fast, no services, no build.
+  guardrails:
+    name: Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Every workspace must declare lint/typecheck/test, and a placeholder test script is
+      # rejected. This is what stops `turbo run test` from silently skipping a workspace —
+      # the failure mode that made CI green while one assertion ran.
+      - run: node scripts/check-workspace-scripts.mjs
+
+      # `exports`/`files` paths must resolve. Catches the phantom-subpath class of bug
+      # that shipped in @forge/theme. Needs the build so dist/ targets are checkable.
+      - run: pnpm build
+      - run: node scripts/check-package-files.mjs
+
+      # Edit the Drizzle schema, forget to generate the migration, and nothing fails until
+      # production says "column does not exist". Needs no database — drizzle-kit generate
+      # diffs against the committed snapshots.
+      - run: node scripts/db/check-migration-drift.mjs
+
+  # Everything that needs real infrastructure. Row-level security is database behaviour —
+  # it cannot be unit-tested, and a mocked version would only assert that the mock agrees
+  # with the test — so this job is the only place tenant isolation can actually be proven.
+  e2e:
+    name: E2E and tenancy
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: forge
+          POSTGRES_PASSWORD: forge_ci_pw
+          POSTGRES_DB: forge
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Required by /readyz and by rate limiting. Not optional in CI for the same reason it
+      # is not optional at runtime: an in-memory fallback would make the tests pass while
+      # the behaviour they cover silently stops working across multiple containers.
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Two URLs, two roles. This split is the whole point: forge_app owns nothing and has
+      # NOBYPASSRLS, so if the isolation tests were accidentally run as the owner (or as a
+      # superuser) they would pass for the wrong reason and prove nothing.
+      SUPERUSER_URL: postgresql://forge:forge_ci_pw@localhost:5432/forge
+      DATABASE_MIGRATION_URL: postgresql://forge_migrator:mig_ci_pw@localhost:5432/forge
+      DATABASE_URL: postgresql://forge_app:app_ci_pw@localhost:5432/forge
+      REDIS_URL: redis://localhost:6379
+
+      # Throwaway values that satisfy the boot-time schema (>= 32 chars, not placeholders,
+      # and distinct from each other). Real secrets never touch CI for this suite — nothing
+      # here verifies a token against anything outside the process.
+      JWT_ACCESS_SECRET: ci_access_secret_that_is_long_enough_1234567890
+      JWT_REFRESH_SECRET: ci_refresh_secret_that_is_long_enough_0987654321
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      NODE_ENV: test
+      LOG_LEVEL: warn
+
+      # Headroom, not disablement. Every request in CI comes from 127.0.0.1, so the
+      # production per-IP limits would block the suite after ten OTP requests — a
+      # security control that cannot be exercised is one nobody notices breaking. The
+      # per-phone limit stays at its default and IS asserted end to end, because each
+      # test uses a fresh number.
+      OTP_MAX_PER_IP: '100000'
+      # The console keeps its own per-IP bucket, so it needs its own headroom for the same
+      # reason. Its per-phone limit likewise stays at the default and is asserted.
+      ADMIN_OTP_MAX_PER_IP: '100000'
+      THROTTLE_PER_SECOND: '10000'
+      THROTTLE_PER_MINUTE: '100000'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Creates forge_migrator (owns the schema) and forge_app (runtime, NOBYPASSRLS).
+      - name: Bootstrap database roles
+        run: |
+          psql "$SUPERUSER_URL" -v ON_ERROR_STOP=1 \
+            -v migrator_password=mig_ci_pw \
+            -v app_password=app_ci_pw \
+            -f packages/db/sql/bootstrap-roles.sql
+
+      - name: Apply migrations
+        run: pnpm --filter @forge/db db:migrate
+
+      # The highest-leverage guard in the repo: catches a table shipped without a policy,
+      # which has no symptoms at all — no error, no warning, just a table every studio can
+      # read. Costs nothing per feature and protects every future table.
+      - name: Assert tenancy invariants
+        run: psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f scripts/db/assert-tenancy.sql
+
+      # Proves the PR template's "migration is reversible" checkbox rather than trusting it.
+      # Re-asserting invariants after the round-trip catches a down-migration that drops a
+      # policy the up-migration does not recreate.
+      - name: Prove migrations are reversible (up -> down -> up)
+        run: |
+          pnpm --filter @forge/db db:rollback
+          test "$(psql "$SUPERUSER_URL" -tAc "select count(*) from pg_tables where schemaname='public'")" = "0" \
+            || { echo "::error::rollback left tables behind"; exit 1; }
+          pnpm --filter @forge/db db:migrate
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f scripts/db/assert-tenancy.sql
+
+      # Behavioural half: cross-studio SELECT/UPDATE/DELETE/INSERT, connection reuse, and
+      # the composite foreign keys. Runs as forge_app.
+      - name: Tenant isolation tests
+        run: pnpm turbo run test:int
+
+      # Until the jest rootDir fix in Phase A, this suite existed but was unreachable and
+      # had never executed. It runs here so that stays true.
+      - run: pnpm turbo run test:e2e
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers what was committed previously, not just the
+          # tip. Secret hygiene in this repo is currently clean; this keeps it that way.
+          fetch-depth: 0
+
+      # The gitleaks CLI, not gitleaks-action@v2.
+      #
+      # The ACTION requires a licence key for organisation-owned repositories — "if you are
+      # scanning repos that belong to an organization account, you will need to obtain a free
+      # license key" — and Forge-in is an organisation, so it failed before scanning
+      # anything. The CLI it wraps is plain MIT and has no such condition.
+      #
+      # Same scan, one fewer third-party secret to hold. Pinned rather than :latest so a
+      # release upstream cannot change what CI enforces without a reviewed diff here.
+      - name: Scan for committed secrets
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          ASSET="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ASSET}"
+
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          curl -sSfL "$URL" | tar -xz -C "$RUNNER_TEMP/gitleaks" gitleaks
+
+          # --redact so a finding never prints the secret itself into a log that is far more
+          # widely readable than the commit it came from.
+          "$RUNNER_TEMP/gitleaks/gitleaks" detect --redact --verbose --exit-code 1
+
+      # REMOVED: actions/dependency-review-action.
+      #
+      # It is "available for: Public repositories; Private repositories with a GitHub
+      # Advanced Security license". This repository is private and has neither, so the step
+      # could never pass — it was failing the whole Security job before gitleaks even ran.
+      #
+      # The coverage is not gone, it moved: enable Dependabot alerts in repository settings,
+      # which are free on private repositories and watch the same advisory database. They
+      # report asynchronously rather than blocking a PR, which is the trade this plan forces.
+      #
+      # `pnpm audit --audit-level high` was considered as a blocking replacement and is the
+      # right long-term answer, but it currently reports 4 high advisories reaching us
+      # transitively through next/postcss. Turning it on today would wire a red X to findings
+      # nobody has triaged yet; triage first, then gate on it.
+
+  # The PR title check lives in .github/workflows/pr-title.yml — it needs the `edited`
+  # trigger, which this workflow deliberately does not have.

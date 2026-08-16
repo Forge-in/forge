@@ -1,0 +1,38 @@
+# Normalise line endings so the working tree matches CI on every machine.
+#
+# Without this, a Windows checkout with the default `core.autocrlf=true` gets CRLF in the
+# working tree while git stores LF. Git hides the difference, but Prettier does not: it
+# reads the working tree, sees CRLF, and reports every file as unformatted. The effect was
+# that `pnpm format:check` failed on 113 files locally and would have passed in CI —
+# and the pre-commit `prettier --write` silently rewrote line endings on any file it
+# touched, adding churn to unrelated diffs.
+#
+# `eol=lf` overrides core.autocrlf for this repo, matching .prettierrc (endOfLine
+# defaults to "lf") and .editorconfig (end_of_line = lf).
+* text=auto eol=lf
+
+# Shell scripts and git hooks must be LF or they fail to execute on Unix.
+*.sh text eol=lf
+.husky/* text eol=lf
+
+# Windows-only scripts genuinely need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary: never touch, never diff.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.keystore binary
+*.jks binary
+
+# Generated: collapse in diffs and exclude from language stats.
+pnpm-lock.yaml linguist-generated=true -diff

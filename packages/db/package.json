@@ -1,0 +1,48 @@
+{
+  "name": "@forge/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Postgres access for Forge. Owns the schema, the migrations, and the only door to the database.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:int": "vitest run --config vitest.int.config.mts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts",
+    "db:rollback": "tsx src/rollback.ts",
+    "db:seed-admin": "tsx src/seed-platform-admin.ts"
+  },
+  "dependencies": {
+    "@forge/shared": "workspace:*",
+    "drizzle-orm": "^0.44.7",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@forge/eslint-config": "workspace:*",
+    "@forge/tsconfig": "workspace:*",
+    "@types/pg": "^8.15.6",
+    "@vitest/coverage-v8": "^4.1.10",
+    "drizzle-kit": "^0.31.6",
+    "eslint": "^9.39.5",
+    "tsx": "^4.20.6",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

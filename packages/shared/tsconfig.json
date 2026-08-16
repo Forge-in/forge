@@ -8,5 +8,8 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"]
+  // Tests sit next to the code they cover, but they must never reach dist/ — this is a
+  // published-shape package and consumers resolve through exports -> dist/index.js.
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }

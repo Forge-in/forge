@@ -6,12 +6,14 @@ One product, four clients, one multi-tenant NestJS backend. pnpm + Turborepo.
 forge/
 ├─ apps/
 │  ├─ api             @forge/api            NestJS backend (the ONLY backend)
-│  ├─ admin           @forge/admin          Next.js  – platform admin dashboard
-│  ├─ owner-web       @forge/owner-web      Next.js  – gym owner dashboard
+│  ├─ company-admin   @forge/company-admin  Next.js  – company admin dashboard
+│  ├─ gym-owner       @forge/gym-owner      Next.js  – gym owner dashboard
 │  ├─ trainer-mobile  @forge/trainer-mobile Expo RN  – trainer app
 │  └─ user-mobile     @forge/user-mobile    Expo RN  – gym user app
 ├─ packages/
 │  ├─ shared          @forge/shared         types, zod schemas, roles — imported by everyone
+│  ├─ db              @forge/db             schema, migrations, RLS, withTenant()
+│  ├─ theme           @forge/theme          Wrath Core design system (web only)
 │  ├─ tsconfig        @forge/tsconfig       TypeScript presets, one per runtime
 │  └─ eslint-config   @forge/eslint-config  ESLint presets, one per runtime
 ├─ docker-compose.yml   # postgres + redis + minio (local infra)
@@ -37,6 +39,15 @@ is unambiguous and nothing can collide with a public package name.
 cp .env.example .env          # then fill in secrets
 pnpm install
 pnpm infra:up                 # postgres + redis + minio
+```
+
+**The two Next apps need their own env file.** Next.js loads `.env` from the app directory,
+never from the monorepo root, so the root `API_URL` is invisible to them and every server
+action that calls the API throws `API_URL is not set`. One line each, git-ignored:
+
+```bash
+echo 'API_URL=http://localhost:4000' > apps/company-admin/.env.local
+echo 'API_URL=http://localhost:4000' > apps/gym-owner/.env.local
 ```
 
 `.env` is git-ignored, so put real local values in it. `JWT_*_SECRET` should be
@@ -74,7 +85,7 @@ src/
    └─ health/              # one folder per feature: module, controller, service, spec
 ```
 
-**`apps/admin`, `apps/owner-web`** — App Router, with everything that is not a
+**`apps/company-admin`, `apps/gym-owner`** — App Router, with everything that is not a
 route living outside `app/`.
 
 ```
@@ -122,12 +133,12 @@ folder gets its first real file.
 
 **`@forge/tsconfig`** — apps extend a preset instead of copying compilerOptions:
 
-| preset                              | used by              |
-| ----------------------------------- | -------------------- |
-| `@forge/tsconfig/base.json`         | `@forge/shared`      |
-| `@forge/tsconfig/nest.json`         | `api`                |
-| `@forge/tsconfig/nextjs.json`       | `admin`, `owner-web` |
-| `@forge/tsconfig/react-native.json` | both mobile apps     |
+| preset                              | used by                      |
+| ----------------------------------- | ---------------------------- |
+| `@forge/tsconfig/base.json`         | `@forge/shared`              |
+| `@forge/tsconfig/nest.json`         | `api`                        |
+| `@forge/tsconfig/nextjs.json`       | `company-admin`, `gym-owner` |
+| `@forge/tsconfig/react-native.json` | both mobile apps             |
 
 `include` / `exclude` / `outDir` stay in each app, because TypeScript resolves
 those paths relative to the file that declares them.
@@ -148,9 +159,15 @@ import { nestConfig } from '@forge/eslint-config/nest';
 export default nestConfig(import.meta.dirname);
 ```
 
-The pre-commit hook runs ESLint with `--flag unstable_config_lookup_from_file`
-so a staged file is linted by **its own app's** preset rather than the root one.
-(That flag is the ESLint 10 default; drop it on upgrade.)
+The pre-commit hook runs ESLint with `--flag v10_config_lookup_from_file` so a
+staged file is linted by **its own app's** preset rather than the root one.
+(That flag is the ESLint 10 default; drop it on upgrade. It was renamed from
+`unstable_config_lookup_from_file` when it stabilised — the old name still parses
+but emits an inactive-flag warning on every commit.)
+
+The root preset also grants Node globals to `scripts/**` and `*.config.*` files.
+Without that, `no-undef` flags every `console` and `process` in a build script,
+because those files are the only ones in the repo with no app runtime of their own.
 
 `@forge/eslint-config` pins `typescript` itself. Without that pin,
 `typescript-eslint` resolved the TypeScript 6 copy the Expo apps pull in, which
@@ -196,12 +213,64 @@ pnpm format:check
 | app            | url                   |
 | -------------- | --------------------- |
 | api            | http://localhost:4000 |
-| admin          | http://localhost:3000 |
-| owner-web      | http://localhost:3001 |
+| company-admin  | http://localhost:3000 |
+| gym-owner      | http://localhost:3001 |
 | trainer-mobile | Metro on 8081         |
 | user-mobile    | Metro on 8082         |
 
-`GET http://localhost:4000/health` is the API's liveness probe.
+Product routes live under `/api/v1`. Probes sit outside both the prefix and versioning, so
+a load balancer never has to chase a version bump:
+
+| endpoint   | question it answers        | on failure                                      |
+| ---------- | -------------------------- | ----------------------------------------------- |
+| `/healthz` | is the process alive?      | the container is **killed** and restarted       |
+| `/readyz`  | should it receive traffic? | it is pulled from the load balancer, not killed |
+
+`/healthz` deliberately touches nothing external. If it checked Postgres, one database blip
+would fail every liveness probe at once and restart every container simultaneously — hitting
+a recovering database with a herd of cold starts. `/readyz` checks Postgres and Redis and
+returns 503 naming whichever failed.
+
+First run needs the database roles created once — see `.env.example`:
+
+```bash
+psql "postgresql://forge:forge_dev_pw@localhost:5432/forge" \
+  -v migrator_password=mig_dev_pw -v app_password=app_dev_pw \
+  -f packages/db/sql/bootstrap-roles.sql
+pnpm --filter @forge/db db:migrate
+```
+
+### Getting into the company admin console
+
+The console has no self-signup and no password. Sign-in is a one-time code by SMS, and the
+first administrator has a bootstrap problem — there is nobody to invite them — so they are
+created by a script that requires database credentials and a human:
+
+```bash
+pnpm --filter @forge/db db:seed-admin -- +919876543210 "Sameer Rathore"
+```
+
+It **refuses to create a second one**. After the first, the only path is an invite from the
+console, which records who approved whom; `--force` exists for a genuine lockout and says so
+in the log it prints.
+
+Until BOTH `MSG91_AUTH_KEY` and `MSG91_OTP_TEMPLATE_ID` are set, the code is not sent — it is
+logged at `debug` by the console transport, which is why `LOG_LEVEL=debug` is the dev default.
+Both, deliberately: MSG91 issues the auth key immediately but the template id only exists after
+DLT approval weeks later, and a half-configured gateway that had switched off the console
+transport would break local sign-in for exactly that window. Production refuses to boot
+without a real gateway, because "the API is healthy and nobody can log in" is the worst
+failure mode this system has.
+
+An invite is a **two-factor** activation: the token proves an existing administrator approved
+the person, and the SMS code proves possession of the number the invite names. The token is
+shown once, to the inviting administrator, and is deliberately **not** sent by SMS — so a SIM
+swap alone cannot activate a new administrator.
+
+Console sessions are separate from member sessions and cannot be exchanged for one another:
+tokens carry an `aud` claim (`console` vs `app`), and each surface's endpoints reject the
+other's. Console sessions are also shorter-lived (12 hours vs 30 days), and suspending an
+administrator kills every session they hold immediately rather than at the next token expiry.
 
 Local infra: Postgres `5432`, MinIO console http://localhost:9001
 (`minioadmin` / `minioadmin`), Redis `6379` — unless you've remapped any of them
@@ -210,8 +279,20 @@ source of truth.
 
 ## Conventions
 
-- **Every tenant-scoped table has `gym_id`.** Postgres RLS enforces it; app code sets it from the JWT, never from client input.
-- **Schema changes = a migration.** Never edit the DB by hand.
+- **The tenant is the STUDIO, not the gym.** A studio is the business that buys Forge;
+  gyms are its branches. Every tenant-scoped table has `studio_id`, Postgres RLS enforces
+  it, and app code sets it from the verified JWT — never from client input. Enforced by
+  `scripts/db/assert-tenancy.sql`, which fails CI if a new table skips it.
+- **`gym_id` records where something happened, never who may see it.** A membership is
+  sold at the studio, so an all-access chain pass is the default: filtering by
+  `registered_gym_id` would silently turn it into a single-branch pass. Access is resolved
+  once per request by `resolveAccessibleGyms()` into `accessibleGymIds`.
+- **`withTenant()` is the only door to the database.** The pools are private to
+  `@forge/db`; nothing else may open a connection. It pins the studio with
+  `set_config(..., true)` inside a transaction — a plain `SET` would leak the tenant to the
+  next request on that pooled connection.
+- **Schema changes = a migration**, with a matching file in `migrations/down/`. Never edit
+  the DB by hand. CI proves up → down → up on every PR.
 - **Roles/DTOs live in `packages/shared`.** Don't redefine them per app.
 - **Config presets live in `packages/*`.** If you find yourself editing the same
   tsconfig or ESLint rule in two apps, it belongs in a preset.

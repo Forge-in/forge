@@ -1,0 +1,34 @@
+# Findings gitleaks should stop reporting, each with the reason it is safe.
+#
+# THE BAR FOR ADDING A LINE HERE: you have opened the commit, read the value, and can say
+# what it is. "The build is red and I want it green" is not a reason — a secret scanner that
+# people silence by reflex is worse than none, because it converts a real leak into a
+# one-line diff nobody reads.
+#
+# A fingerprint is commit:path:rule:line. It pins the finding to one commit, so this cannot
+# accidentally hide the same pattern appearing somewhere new.
+#
+# NEVER QUOTE THE FLAGGED VALUE IN THESE COMMENTS. This file is committed, so anything
+# written here becomes part of the history gitleaks scans — the first version of this file
+# reproduced the placeholder it was explaining, and gitleaks duly flagged the explanation.
+# Describe the finding; do not repeat it.
+
+# NestJS scaffold boilerplate. `nest new` ships a README carrying CircleCI badge link
+# definitions whose URL ends in a query parameter holding an obvious dummy value — sample
+# text from the framework's own template, never a credential of ours. It arrived in the
+# initial scaffold commit and cannot be removed from history without a rewrite.
+#
+# The lines themselves are now deleted from apps/api/README.md: they were unreferenced link
+# definitions (the badge further down the file links directly), so leaving them would only
+# mean the same false positive returning under a new fingerprint the next time that file is
+# touched.
+a9223a8b7d8242f4c94245a8b52a735d993a867c:apps/api/README.md:generic-api-key:5
+
+# This file's own first version, which quoted the value above while explaining it — see the
+# warning at the top. The text is gone from the current file, but it stays in that commit,
+# and history is what gitleaks reads.
+#
+# Ignored rather than rebased away on purpose: the value is a framework's sample text, and
+# rewriting a pushed branch's history to silence a false positive costs more than it buys.
+# Fingerprints are the mechanism for exactly this.
+cd4b69a59025aa0140e762408306171e1207e5a0:.gitleaksignore:generic-api-key:12

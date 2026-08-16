@@ -55,6 +55,24 @@ default palette on every load.
 6. **Primitives** — `wc-card`, `wc-field`, `hairline-*`, `wc-dot`, `wc-avatar`,
    `wc-solid`, `wc-row`.
 
+## Not yet here: React Native tokens
+
+This package is **web only**. Metro cannot consume `theme.css`, so the two Expo apps
+currently share none of this visual language.
+
+`package.json` used to advertise a `@forge/theme/tokens` subpath pointing at a
+`tokens.json` that has never existed — importing it threw at resolve time. The export
+has been removed rather than back-filled, because the right shape for a native token
+export depends on a styling decision the mobile apps have not made yet (plain
+`StyleSheet`, NativeWind, or Unistyles each want a different structure), and there is no
+consumer to design against.
+
+When the first mobile screen needs theming: **generate** `tokens.json` from `theme.css`
+rather than hand-copying the palette. Two hand-maintained copies of the same colours
+will drift, and the drift shows up as a subtly off-brand app that nobody notices for
+months. `scripts/check-package-files.mjs` asserts that every path in `exports` and
+`files` actually resolves, so a phantom export cannot come back.
+
 ## Changing it
 
 Adding a value here changes every app at once — that is the point, and the reason

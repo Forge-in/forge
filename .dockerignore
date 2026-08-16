@@ -1,0 +1,19 @@
+# Everything the build does not need. Keeps the context small (a full node_modules copy is
+# slow to send to the daemon) and keeps secrets out of the image entirely.
+**/node_modules
+**/dist
+**/.next
+**/.expo
+**/.turbo
+**/coverage
+
+# Secrets. .env would otherwise be COPYed into the image and readable by anyone who can pull
+# it; production config arrives as real environment variables instead.
+.env
+.env.*
+!.env.example
+
+.git
+.github
+**/*.log
+docker-compose*.yml
