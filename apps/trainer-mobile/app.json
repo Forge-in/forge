@@ -5,7 +5,22 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      "./plugins/with-gradle-tuning.cjs",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0A0F17",
+          "dark": {
+            "backgroundColor": "#0A0F17"
+          }
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true
     },
@@ -16,7 +31,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.trainermobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"
