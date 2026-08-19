@@ -12,8 +12,10 @@ export default defineConfig([
   expoConfig,
   {
     // metro.config.js / babel.config.js must stay CommonJS — the RN toolchain
-    // loads them with require() before any ESM transform is available.
-    files: ['**/*.config.js', '**/*.config.cjs'],
+    // loads them with require() before any ESM transform is available. Expo
+    // config plugins under plugins/ are in the same position: `expo prebuild`
+    // require()s them, so they cannot use import syntax either.
+    files: ['**/*.config.js', '**/*.config.cjs', '**/plugins/**/*.cjs'],
     languageOptions: { sourceType: 'commonjs' },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
