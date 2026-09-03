@@ -1,18 +1,37 @@
 name: Setup
-description: Checkout-adjacent toolchain setup — pnpm, Node and a warm install. Used by every CI job.
+description: Checkout-adjacent toolchain setup — pnpm, Node, a warm install and the Turbo cache. Used by every CI job.
+
+inputs:
+  turbo-cache-scope:
+    description: >-
+      Name of the Turborepo cache bucket for this job. Leave empty to skip the cache
+      entirely — correct for jobs that run no turbo task (the PR-title lint), because an
+      unused bucket still costs an upload and evicts a real one under the 10 GB limit.
+      Jobs that run DIFFERENT task sets must use DIFFERENT scopes: one bucket shared by a
+      build-only job and a lint+test job thrashes, each run overwriting the other's entries.
+    required: false
+    default: ''
+  install:
+    description: >-
+      Set to "false" to skip `pnpm install`. Only for jobs that need the toolchain but not
+      the dependency tree.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
-    # pnpm/action-setup MUST run before setup-node: `cache: pnpm` needs the pnpm binary
-    # on PATH to resolve the store directory, and fails outright if it is missing.
+    # pnpm/action-setup MUST run before setup-node: `cache: pnpm` needs the pnpm binary on
+    # PATH to resolve the store directory, and fails outright if it is missing.
     #
     # Deliberately no `version:` input. The version comes from `packageManager` in the root
     # package.json, which is the single source of truth. Passing both is what broke CI twice
     # already (commits a9729bb and d1a0e3b) — action-setup errors on the conflict.
-    - uses: pnpm/action-setup@v4
+    # `scripts/check-repo-hygiene.mjs` asserts that field stays an exact pin, because a range
+    # there would make the pnpm version non-deterministic across runs.
+    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version-file: .nvmrc
         cache: pnpm
@@ -20,5 +39,27 @@ runs:
     # --frozen-lockfile makes an out-of-date lockfile a hard failure rather than a silent
     # resolution change, so CI can never install a dependency tree the committed lockfile
     # does not describe.
-    - run: pnpm install --frozen-lockfile
+    #
+    # --prefer-offline uses the store cache restored above instead of re-hitting the registry
+    # for tarballs it already has. Resolution still happens against the lockfile, so this
+    # changes speed and nothing else.
+    - if: inputs.install == 'true'
+      run: pnpm install --frozen-lockfile --prefer-offline
       shell: bash
+
+    # Turborepo's LOCAL cache, persisted between runs. There is no remote cache configured
+    # (that needs a Vercel token this repo does not hold), so without this every run rebuilds
+    # every workspace from scratch even when the diff touched one file.
+    #
+    # The key is content-addressed by lockfile plus commit, with two fallbacks: same lockfile
+    # first (a source-only change reuses every dependency-derived artefact), then the newest
+    # entry for the scope. Turbo verifies its own hashes on read, so a stale restore can only
+    # ever produce a miss — never a wrong artefact.
+    - if: inputs.turbo-cache-scope != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo/cache
+        key: turbo-${{ runner.os }}-${{ inputs.turbo-cache-scope }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ runner.os }}-${{ inputs.turbo-cache-scope }}-${{ hashFiles('pnpm-lock.yaml') }}-
+          turbo-${{ runner.os }}-${{ inputs.turbo-cache-scope }}-

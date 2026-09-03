@@ -5,7 +5,27 @@
   // could never share a cache entry, and every local secret tweak invalidated every task.
   // `.env.example` is the committed contract, so hashing that is both meaningful and portable.
   "globalDependencies": [".env.example", ".nvmrc"],
-  "globalPassThroughEnv": ["CI", "TURBO_TOKEN", "TURBO_TEAM"],
+  // turbo 2 defaults to strict env mode: a task sees ONLY what is listed here or in its own
+  // env/passThroughEnv. Anything the workflow exports and forgets to list simply never
+  // arrives — see the note on test:e2e below for what that failure looks like.
+  //
+  // passThroughEnv rather than globalEnv, deliberately: none of these change what a task
+  // PRODUCES, so mixing them into the cache key would only split the cache between CI and
+  // every laptop for no gain.
+  //
+  // The telemetry flags are the reason this list grew. `next build` and `expo export` each
+  // phone home unless told not to, and the workflow-level `env:` block in ci.yml that sets
+  // them is inert without this line. scripts/check-repo-hygiene.mjs compares the two.
+  "globalPassThroughEnv": [
+    "CI",
+    "TURBO_TOKEN",
+    "TURBO_TEAM",
+    "TURBO_TELEMETRY_DISABLED",
+    "NEXT_TELEMETRY_DISABLED",
+    "EXPO_NO_TELEMETRY",
+    "DO_NOT_TRACK",
+    "FORCE_COLOR"
+  ],
 
   "tasks": {
     "build": {

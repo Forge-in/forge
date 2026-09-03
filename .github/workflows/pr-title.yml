@@ -27,9 +27,18 @@ jobs:
   lint:
     name: PR title
     runs-on: ubuntu-latest
+    # A two-second check behind a one-minute install. Anything past this is a wedged runner.
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - uses: ./.github/actions/setup
+        with:
+          # No turbo task runs here, and an unused cache bucket still costs an upload on
+          # every PR edit while evicting a real one under the 10 GB limit.
+          turbo-cache-scope: ''
 
       # Squash-merge uses the PR TITLE as the commit message, which bypasses the commit-msg
       # commitlint hook entirely. Without this check, main's history drifts out of

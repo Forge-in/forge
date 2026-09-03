@@ -33,6 +33,14 @@ const REQUIRED_BUILD = [
   'apps/company-admin',
   'apps/gym-owner',
   'apps/api',
+  // The Expo apps for the same reason as the Next ones, and it took longest to notice here:
+  // `tsc --noEmit` type-checks files, it does not RESOLVE the Metro module graph. A missing
+  // asset, a require of a package that is not a dependency, a native-only module imported
+  // from shared code — none of that is a type error, and none of it failed anything until
+  // someone opened the app. `expo export` is the only step that walks the real graph.
+  'apps/trainer-mobile',
+  'apps/user-mobile',
+  'packages/api-client',
   'packages/shared',
   // Emits CommonJS for the same reason as @forge/shared: the API runs as `node dist/main`
   // and cannot require TypeScript from node_modules at runtime.

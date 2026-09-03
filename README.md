@@ -204,9 +204,17 @@ pnpm dev         # all apps in parallel (turbo)
 pnpm lint        # read-only; pnpm lint:fix to apply fixes
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm build       # includes `expo export` for both mobile apps — see below
 pnpm format:check
+pnpm hygiene     # repo-shape invariants; same check CI runs
+pnpm audit:ci    # dependency advisory gate; same check CI runs
 ```
+
+`pnpm build` is not only the web apps. The Expo apps build with `expo export`, which is the
+only step that resolves the Metro module graph: `tsc --noEmit` type-checks files, but it will
+not notice a missing asset, a require of a package that is not a dependency, or a native-only
+module imported from shared code. None of those are type errors, and none of them failed
+anything until someone opened the app.
 
 `pnpm dev` ports — fixed rather than auto-assigned, so nothing races for 3000:
 
@@ -276,6 +284,51 @@ Local infra: Postgres `5432`, MinIO console http://localhost:9001
 (`minioadmin` / `minioadmin`), Redis `6379` — unless you've remapped any of them
 in a `docker-compose.override.yml`, in which case `docker compose ps` is the
 source of truth.
+
+## 5. CI
+
+Five jobs run on every pull request, plus one aggregator.
+
+| job               | what it proves                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `Verify`          | lint, typecheck, test and **build** across every workspace, plus repo-wide format and the package-path check |
+| `Guardrails`      | structural invariants: workspace scripts, repo hygiene, migration drift                                      |
+| `E2E and tenancy` | migrations up → down → up, RLS invariants, tenant isolation, API e2e — against real Postgres and Redis       |
+| `Security`        | committed-secret scan, and the dependency advisory gate                                                      |
+| `API image`       | builds `apps/api/Dockerfile`, boots it against real services, scans it, and publishes it from `main`         |
+| `CI`              | the single check to require in branch protection                                                             |
+
+**Require only `CI` in branch protection.** It fails if any job above did not succeed. Naming
+the individual jobs there means a job you later rename becomes a check that never reports —
+and a job you later add protects nothing until someone edits repository settings.
+
+A few things worth knowing before a red build surprises you:
+
+- **Every `uses:` is pinned to a commit SHA**, not a tag, and `pnpm hygiene` fails if one is
+  not. A tag is mutable, and CI holds a token, the registry credential and the whole source
+  tree. Dependabot keeps the pins current (`.github/dependabot.yml`), so this costs nothing
+  to maintain.
+- **The advisory gate is not `pnpm audit`.** It fails only on an advisory nobody has triaged,
+  on a triage that expired, and on a triage that no longer matches anything — so
+  `.github/audit-allowlist.json` cannot rot into a permanent mute. Every entry needs a
+  reason, a link and an expiry of at most 183 days. When you upgrade a dependency, **delete**
+  its entry; leaving it there is itself a failure.
+- **The e2e environment lives in `.github/ci/e2e.env`**, not in the workflow. turbo _filters_
+  the environment: a variable exported by the workflow but missing from `passThroughEnv` in
+  `turbo.json` never reaches the process, the API falls back to its default, and the symptom
+  is a 429 in a test that has nothing to do with rate limiting — invisible when you run jest
+  directly, because that path bypasses turbo. `pnpm hygiene` compares the two files so that
+  cannot happen silently.
+- **The image job publishes the exact bytes it tested.** It loads the build locally, asserts
+  the invariants the Dockerfile claims (non-root, no build tooling, UTC, under a size
+  ceiling, a HEALTHCHECK), runs the migrations from that image, boots it in
+  `NODE_ENV=production` against real Postgres and Redis, waits for `/readyz`, scans it, and
+  only then pushes to GHCR from `main`. Deploy by the digest it prints, not by a tag.
+
+`CodeQL` and `PR title` are separate workflows: CodeQL runs on `main` and weekly rather than
+on every PR (its signal is real but noisy, and a scanner that comments on every PR gets muted
+within a month), and the PR-title check needs the `edited` trigger that `ci.yml` deliberately
+does not have.
 
 ## Conventions
 

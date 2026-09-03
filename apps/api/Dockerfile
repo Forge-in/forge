@@ -90,6 +90,17 @@ COPY --from=builder --chown=node:node /repo/packages/db/package.json ./packages/
 # resolves them relative to __dirname, which is why they must sit next to dist/.
 COPY --from=builder --chown=node:node /repo/packages/db/migrations ./packages/db/migrations
 
+# Build identity, stamped in by CI and reported back by /healthz. Declared LAST in this
+# stage on purpose: an ARG invalidates the cache for every layer after it, and these two
+# change on every single commit — placed any earlier they would re-run all the COPYs above.
+#
+# Both default to "unknown", matching env.schema.ts, so a hand-built image still boots. It
+# just cannot answer "which build is on staging", which is the question these exist for.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
+ENV GIT_SHA=${GIT_SHA} \
+    BUILT_AT=${BUILT_AT}
+
 USER node
 EXPOSE 4000
 

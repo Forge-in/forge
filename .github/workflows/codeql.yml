@@ -29,6 +29,11 @@ jobs:
     name: Analyze
     runs-on: ubuntu-latest
 
+    # Same reasoning as every job in ci.yml: without a ceiling, a hang here occupies a runner
+    # for six hours before GitHub reaps it, and reports as "cancelled" rather than as a
+    # failure. A full analysis of this repo takes a few minutes.
+    timeout-minutes: 45
+
     permissions:
       # Required to upload results to the Security tab.
       security-events: write
@@ -36,9 +41,15 @@ jobs:
       actions: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: github/codeql-action/init@v3
+      # v4, not v3. CodeQL Action v3 reached end of life and stopped receiving query-pack and
+      # runtime updates — a scanner that is no longer updated is the one thing worse than no
+      # scanner, because the green tick keeps arriving. Pinned by commit SHA like every other
+      # action here; Dependabot keeps the pin current (.github/dependabot.yml).
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           # One language covers the whole repo: API, both Next apps, both Expo apps and every
           # shared package. There is no second language to add.
@@ -52,6 +63,6 @@ jobs:
 
       # No build step. CodeQL analyses TypeScript directly, and `pnpm build` here would only
       # add several minutes and a chance of failing for reasons unrelated to security.
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: '/language:javascript-typescript'
