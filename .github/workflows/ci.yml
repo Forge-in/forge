@@ -62,21 +62,60 @@ jobs:
       # fully green here and still fail to build. The same now holds for the two Expo apps:
       # their `build` is `expo export`, which is the only thing that resolves the Metro graph
       # and so the only thing that catches a bad asset path or a native-only import.
-      - run: pnpm turbo run lint typecheck test build --continue
+      #
+      # `--continue` so a lint failure does not hide a typecheck failure — every problem in
+      # one run.
+      - name: Lint, typecheck and build
+        run: pnpm turbo run lint typecheck build --continue
+
+      # TESTS RUN ALONE. This split is not tidiness, it is the fix for a real and repeatedly
+      # misdiagnosed failure.
+      #
+      # apps/trainer-mobile/jest.config.js documents it at length: App.test.tsx mounts the
+      # whole app once per test, ~200ms on an idle machine and roughly 17x that on a runner
+      # where `turbo run lint typecheck test build` had two Next builds, two vitest suites and
+      # the Nest suite competing for the same two-to-four cores. That produced nine
+      # `Exceeded timeout` failures in a suite that passes in 9s when run alone — and the one
+      # failure that looked different ("unable to find testID: toast") was a knock-on from the
+      # test before it timing out mid-flight, leaving cleanup unfinished and the next query
+      # reading a stale tree.
+      #
+      # Raising testTimeout to 30s treated the symptom. Isolating the fake-timer test into its
+      # own file (548a5d2) treated a different symptom. Neither removed the contention, which
+      # is the actual cause — and adding `expo export` to `build` made it materially worse:
+      # four more Metro bundlers (two apps x android+ios) in the same parallel batch as the
+      # React Native suite they were starving.
+      #
+      # Running the builds first and the tests second costs a minute of wall clock and gives
+      # jest an uncontended machine, which is the condition its timeouts were written for.
+      #
+      # `!cancelled()` rather than a plain sequential step: a lint or build failure above must
+      # not stop the tests from reporting, or the "every problem in one run" property that
+      # `--continue` exists for is lost at the step boundary instead of inside turbo.
+      - name: Test
+        if: ${{ !cancelled() }}
+        run: pnpm turbo run test
 
       # `exports`/`files` paths must resolve. Catches the phantom-subpath class of bug that
       # shipped in @forge/theme. Lives HERE rather than in `guardrails` because it needs
       # dist/ to exist: running it there meant a second full `pnpm build` on every CI run,
       # for one script whose prerequisite this job has already paid for.
-      - run: node scripts/check-package-files.mjs
+      #
+      # `!cancelled()` on this and the two below for the same reason as the test step: these
+      # are seconds-long, independent checks, and a failing test hiding a formatting problem
+      # only costs someone a second round trip through CI to find it.
+      - if: ${{ !cancelled() }}
+        run: node scripts/check-package-files.mjs
 
       # `turbo run lint` only reaches workspaces. These are the files outside all of them —
       # including the guardrail scripts the `guardrails` job depends on.
-      - run: pnpm lint:repo
+      - if: ${{ !cancelled() }}
+        run: pnpm lint:repo
 
       # Root-level and repo-wide, so it is a plain script rather than a turbo task.
       # Prevents the Prettier churn on untouched lines that makes review useless.
-      - run: pnpm format:check
+      - if: ${{ !cancelled() }}
+        run: pnpm format:check
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -377,10 +416,13 @@ jobs:
 
     env:
       # Uncompressed ceiling for the runtime image. The number is a regression guard, not a
-      # target: the failure it exists to catch shipped at 805 MB. The actual size is printed
-      # on every run, so if a real dependency pushes past this the fix is to raise the line
-      # deliberately in a reviewed diff — never to delete the check.
-      MAX_IMAGE_MB: '500'
+      # target: the failure it exists to catch shipped at 805 MB. A correctly pruned image
+      # measures ~90 MB today, so 250 leaves room for real dependency growth while still
+      # catching a build stage leaking into the runtime one by an order of magnitude.
+      #
+      # The actual size is printed on every run. If a real dependency pushes past this, raise
+      # the line deliberately in a reviewed diff — never delete the check.
+      MAX_IMAGE_MB: '250'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -467,30 +509,45 @@ jobs:
           fi
           echo "runs as uid ${uid}"
 
-          # Nothing from the builder stage may reach the runtime tree. Each of these is a
-          # compiler or test runner with no business in a production image, and their
-          # presence is the signature of the prune regression this job exists to catch.
+          # The runtime dependency tree, asserted in BOTH directions.
           #
-          # Read from node_modules/.pnpm, not from the top-level node_modules. pnpm puts the
-          # real package in the virtual store and only SYMLINKS it into the workspace that
-          # depends on it — so `test -e node_modules/@nestjs/cli` is false even when the CLI
-          # is installed, because the API's devDependencies link from apps/api/node_modules.
-          # Checking the store catches it wherever it is linked from.
-          store="$(docker run --rm forge-api:ci sh -c 'ls node_modules/.pnpm 2>/dev/null')"
-          if [ -z "$store" ]; then
-            echo "::error::node_modules/.pnpm is missing or empty in the image — this check would pass vacuously, which is worse than failing"
-            exit 1
-          fi
-
-          # Scoped packages are stored with '+' in place of '/': @nestjs/cli -> @nestjs+cli.
-          for leaked in typescript jest ts-jest drizzle-kit '@nestjs+cli' '@nestjs+schematics' '@types+jest' supertest; do
-            if printf '%s\n' "$store" | grep -q "^${leaked}@"; then
-              echo "::error::devDependency '${leaked}' leaked into the runtime image"
-              printf '%s\n' "$store" | grep "^${leaked}@"
-              exit 1
-            fi
+          # Checked against pnpm's SYMLINK FARM — the per-workspace node_modules — and not
+          # against node_modules/.pnpm. The virtual store is the wrong place to look: pnpm
+          # materialises packages there that it never links anywhere, so `typescript@5.9.3`
+          # sits in the store of a correctly pruned production image while being unreachable
+          # from every line of code that runs. A store-based check calls that a leak and is
+          # simply wrong. `require.resolve` is wrong in the other direction — modern `exports`
+          # maps block the `/package.json` subpath, so drizzle-orm probes as absent when it is
+          # present and working. What the link farm answers is the actual question: can the
+          # running app load this?
+          #
+          # The ABSENT list is the prune regression this job exists to catch — a compiler or
+          # test runner in a production image.
+          #
+          # The PRESENT list catches the opposite and more dangerous failure: the Dockerfile
+          # copies four separate node_modules directories by hand, and dropping one produces
+          # an image that builds clean, passes every other assertion here, and then crashes on
+          # its first query. It also stops this whole step from passing vacuously if the tree
+          # ever moves.
+          docker run --rm -i forge-api:ci sh -s <<'ASSERT'
+          set -u
+          DIRS="node_modules apps/api/node_modules packages/db/node_modules packages/shared/node_modules"
+          fail=0
+          for pkg in typescript jest ts-jest drizzle-kit @nestjs/cli @nestjs/schematics supertest; do
+            for d in $DIRS; do
+              if [ -e "$d/$pkg" ]; then echo "LEAKED  $d/$pkg"; fail=1; fi
+            done
           done
-          echo "no build tooling in the runtime tree ($(printf '%s\n' "$store" | wc -l) packages in the store)"
+          for pkg in @nestjs/core @nestjs/common drizzle-orm pg ioredis zod @forge/db @forge/shared; do
+            found=0
+            for d in $DIRS; do
+              if [ -e "$d/$pkg" ]; then found=1; fi
+            done
+            if [ "$found" -eq 0 ]; then echo "MISSING $pkg"; fail=1; fi
+          done
+          if [ "$fail" -eq 0 ]; then echo "runtime tree is exactly what it should be"; fi
+          exit "$fail"
+          ASSERT
 
           # TZ=UTC is not cosmetic. Every business-day boundary is derived by converting UTC
           # into Asia/Kolkata explicitly, so a container already in local time double-shifts
