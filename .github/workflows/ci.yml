@@ -23,6 +23,9 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
+    # Healthy runs finish in ~7 minutes. See the note on the e2e job about why every job here
+    # carries a ceiling.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -52,6 +55,7 @@ jobs:
   guardrails:
     name: Guardrails
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -77,6 +81,13 @@ jobs:
   e2e:
     name: E2E and tenancy
     runs-on: ubuntu-latest
+
+    # Without a ceiling a hang here runs for six hours before GitHub reaps it. That is not
+    # hypothetical: run 33614256291 sat in `turbo run test:e2e` from 09:28 to 15:29, produced
+    # no output after the builds finished, blocked the PR for the whole window and reported as
+    # "cancelled" rather than as a failure -- which reads like someone cancelled it, not like a
+    # bug. A healthy run of this job takes under two minutes.
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -178,6 +189,7 @@ jobs:
   security:
     name: Security
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read

@@ -25,28 +25,6 @@ const openApp = async () => {
   await screen.findByTestId('start-session');
 };
 
-/**
- * Runs `body` with the clock under the test's control.
- *
- * Every toast assertion needs this. A toast auto-dismisses after TOAST_DURATION_MS of REAL
- * wall-clock time, so asserting on one is otherwise a race against the machine: on a loaded CI
- * runner a press and its re-render can take longer than the toast lives, and the query finds
- * nothing. That is not hypothetical — it is what turned "sits at the same height on every
- * screen" red while the layout it checks was perfectly correct. Freezing the clock takes the
- * machine out of the assertion entirely.
- *
- * Timers are faked only after the app has mounted: the startup gate resolves on real
- * microtasks, and faking them before that stalls the render.
- */
-const withFakeTimers = async (body: () => Promise<void>) => {
-  jest.useFakeTimers();
-  try {
-    await body();
-  } finally {
-    jest.useRealTimers();
-  }
-};
-
 describe('Today', () => {
   it('opens on Today with the trainer and the next session', async () => {
     await openApp();
@@ -69,10 +47,8 @@ describe('Today', () => {
   it('raises a toast from the notification bell', async () => {
     await openApp();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('notifications'));
-      expect(screen.getByText('3 unread · nudges and booking requests')).toBeTruthy();
-    });
+    await fireEvent.press(screen.getByTestId('notifications'));
+    expect(screen.getByText('3 unread · nudges and booking requests')).toBeTruthy();
   });
 
   it('sends the slipping prompt to the roster', async () => {
@@ -179,10 +155,8 @@ describe('client detail', () => {
   it('confirms logging progress with a toast', async () => {
     await openNeha();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('log-progress'));
-      expect(screen.getByText('Progress sheet open for Neha D.')).toBeTruthy();
-    });
+    await fireEvent.press(screen.getByTestId('log-progress'));
+    expect(screen.getByText('Progress sheet open for Neha D.')).toBeTruthy();
   });
 });
 
@@ -212,11 +186,9 @@ describe('Plans', () => {
   it('publishes the selected week', async () => {
     await openPlans();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('week-7'));
-      await fireEvent.press(screen.getByTestId('publish-week'));
-      expect(screen.getByText('Week 7 published to 4 clients')).toBeTruthy();
-    });
+    await fireEvent.press(screen.getByTestId('week-7'));
+    await fireEvent.press(screen.getByTestId('publish-week'));
+    expect(screen.getByText('Week 7 published to 4 clients')).toBeTruthy();
   });
 });
 
@@ -227,15 +199,11 @@ describe('the live session', () => {
   };
 
   it('opens the runner, keeps the confirmation toast and hides the tab bar', async () => {
-    await openApp();
+    await startSession();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('start-session'));
-
-      expect(screen.getByTestId('log-set')).toBeTruthy();
-      expect(screen.getByText('Session started · 9:00 HIIT')).toBeTruthy();
-      expect(screen.queryByTestId('tab-bar')).toBeNull();
-    });
+    expect(screen.getByTestId('log-set')).toBeTruthy();
+    expect(screen.getByText('Session started · 9:00 HIIT')).toBeTruthy();
+    expect(screen.queryByTestId('tab-bar')).toBeNull();
   });
 
   it('starts on the station the design seeds', async () => {
@@ -297,8 +265,10 @@ describe('the live session', () => {
 
   it('advances the clock every second while live, and stops when it ends', async () => {
     await openApp();
-
-    await withFakeTimers(async () => {
+    // Fake timers are switched on only after the app has mounted: the startup gate resolves on
+    // real microtasks, and faking them before that stalls the render.
+    jest.useFakeTimers();
+    try {
       await fireEvent.press(screen.getByTestId('start-session'));
       // The design seeds 724 seconds so the runner opens mid-session.
       expect(screen.getByText('12:04')).toBeTruthy();
@@ -315,17 +285,17 @@ describe('the live session', () => {
       await fireEvent.press(screen.getByTestId('start-session'));
       // Frozen at the moment it ended, not still counting through the two idle minutes.
       expect(screen.getByText('12:35')).toBeTruthy();
-    });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('ends the session back on Today with a summary', async () => {
     await startSession();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('end-session'));
-      expect(screen.getByText('Rahul Mehra')).toBeTruthy();
-      expect(screen.getByText('Session logged · 7 sets across 6 clients')).toBeTruthy();
-    });
+    await fireEvent.press(screen.getByTestId('end-session'));
+    expect(screen.getByText('Rahul Mehra')).toBeTruthy();
+    expect(screen.getByText('Session logged · 7 sets across 6 clients')).toBeTruthy();
   });
 
   it('re-enters a running session instead of restarting it', async () => {
@@ -366,15 +336,13 @@ describe('check-in', () => {
   it('promotes from the waitlist exactly once', async () => {
     await openCheckIn();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('promote-rohan-tiwari'));
-      expect(screen.getByText('Rohan T. promoted from waitlist')).toBeTruthy();
-      expect(screen.getByText('Added')).toBeTruthy();
-      expect(screen.getByTestId('present-count')).toHaveTextContent('5');
+    await fireEvent.press(screen.getByTestId('promote-rohan-tiwari'));
+    expect(screen.getByText('Rohan T. promoted from waitlist')).toBeTruthy();
+    expect(screen.getByText('Added')).toBeTruthy();
+    expect(screen.getByTestId('present-count')).toHaveTextContent('5');
 
-      await fireEvent.press(screen.getByTestId('promote-rohan-tiwari'));
-      expect(screen.getByTestId('present-count')).toHaveTextContent('5');
-    });
+    await fireEvent.press(screen.getByTestId('promote-rohan-tiwari'));
+    expect(screen.getByTestId('present-count')).toHaveTextContent('5');
   });
 
   it('starts the session from check-in', async () => {
@@ -402,27 +370,23 @@ describe('toasts', () => {
   it('sits at the same height on every screen, clear of the runner CTA', async () => {
     await openApp();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('notifications'));
-      const onTabbedScreen = StyleSheet.flatten(screen.getByTestId('toast').props.style);
-      expect(onTabbedScreen.bottom).toBe(110);
+    await fireEvent.press(screen.getByTestId('notifications'));
+    const onTabbedScreen = StyleSheet.flatten(screen.getByTestId('toast').props.style);
+    expect(onTabbedScreen.bottom).toBe(110);
 
-      await fireEvent.press(screen.getByTestId('start-session'));
-      expect(screen.queryByTestId('tab-bar')).toBeNull();
-      const onRunner = StyleSheet.flatten(screen.getByTestId('toast').props.style);
-      expect(onRunner.bottom).toBe(110);
-    });
+    await fireEvent.press(screen.getByTestId('start-session'));
+    expect(screen.queryByTestId('tab-bar')).toBeNull();
+    const onRunner = StyleSheet.flatten(screen.getByTestId('toast').props.style);
+    expect(onRunner.bottom).toBe(110);
   });
 
   it('are cleared by navigating away', async () => {
     await openApp();
 
-    await withFakeTimers(async () => {
-      await fireEvent.press(screen.getByTestId('notifications'));
-      expect(screen.getByTestId('toast')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('notifications'));
+    expect(screen.getByTestId('toast')).toBeTruthy();
 
-      await fireEvent.press(screen.getByTestId('tab-plans'));
-      expect(screen.queryByTestId('toast')).toBeNull();
-    });
+    await fireEvent.press(screen.getByTestId('tab-plans'));
+    expect(screen.queryByTestId('toast')).toBeNull();
   });
 });
