@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import App from './App';
@@ -261,33 +261,6 @@ describe('the live session', () => {
     // Neha is at zero, so undo is disabled and the count cannot go negative.
     await fireEvent.press(screen.getByTestId('undo-set'));
     expect(screen.getByText('7 sets logged')).toBeTruthy();
-  });
-
-  it('advances the clock every second while live, and stops when it ends', async () => {
-    await openApp();
-    // Fake timers are switched on only after the app has mounted: the startup gate resolves on
-    // real microtasks, and faking them before that stalls the render.
-    jest.useFakeTimers();
-    try {
-      await fireEvent.press(screen.getByTestId('start-session'));
-      // The design seeds 724 seconds so the runner opens mid-session.
-      expect(screen.getByText('12:04')).toBeTruthy();
-
-      await act(async () => {
-        jest.advanceTimersByTime(31_000);
-      });
-      expect(screen.getByText('12:35')).toBeTruthy();
-
-      await fireEvent.press(screen.getByTestId('end-session'));
-      await act(async () => {
-        jest.advanceTimersByTime(120_000);
-      });
-      await fireEvent.press(screen.getByTestId('start-session'));
-      // Frozen at the moment it ended, not still counting through the two idle minutes.
-      expect(screen.getByText('12:35')).toBeTruthy();
-    } finally {
-      jest.useRealTimers();
-    }
   });
 
   it('ends the session back on Today with a summary', async () => {

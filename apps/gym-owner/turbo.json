@@ -1,0 +1,18 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // `next build` GENERATES .next/types/*.d.ts, and this app's tsconfig includes
+    // `.next/types/**/*.ts`. The root config has typecheck depend on `^build` — the
+    // DEPENDENCIES' builds — which says nothing about this package's own build, so turbo is
+    // free to schedule typecheck first. When it does, tsc fails with
+    //   error TS6053: File '.next/types/cache-life.d.ts' not found.
+    // on a tree that is perfectly type-correct.
+    //
+    // It is a race, so it stays hidden until scheduling happens to lose: this passed on three
+    // CI runs and failed on the fourth with no relevant change to the app. Ordering the two
+    // tasks costs nothing in CI, where `turbo run lint typecheck test build` builds this app
+    // anyway — it only decides which of the two goes first.
+    "typecheck": { "dependsOn": ["^build", "build"] }
+  }
+}
