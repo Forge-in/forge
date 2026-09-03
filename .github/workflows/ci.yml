@@ -66,35 +66,46 @@ jobs:
       # `--continue` so a lint failure does not hide a typecheck failure — every problem in
       # one run.
       - name: Lint, typecheck and build
+        timeout-minutes: 20
         run: pnpm turbo run lint typecheck build --continue
 
-      # TESTS RUN ALONE. This split is not tidiness, it is the fix for a real and repeatedly
-      # misdiagnosed failure.
+      # TESTS RUN ALONE, AND ONE AT A TIME. Both halves are load-bearing, and this was
+      # misdiagnosed three times before the logs were read properly.
       #
-      # apps/trainer-mobile/jest.config.js documents it at length: App.test.tsx mounts the
-      # whole app once per test, ~200ms on an idle machine and roughly 17x that on a runner
-      # where `turbo run lint typecheck test build` had two Next builds, two vitest suites and
-      # the Nest suite competing for the same two-to-four cores. That produced nine
-      # `Exceeded timeout` failures in a suite that passes in 9s when run alone — and the one
-      # failure that looked different ("unable to find testID: toast") was a knock-on from the
-      # test before it timing out mid-flight, leaving cleanup unfinished and the next query
-      # reading a stale tree.
+      # The measured facts, from run 33791068517: ClientDetailScreen.test.tsx took 46.7s,
+      # App.clock.test.tsx 66.2s and App.test.tsx 93.7s, against roughly 0.2-6s each on a
+      # developer machine. Two blew through the 30s ceiling, and jest printed the tell —
+      # "A worker process has failed to exit gracefully and has been force exited." The next
+      # run did not get the force exit and simply hung until the job timeout, reporting as
+      # "cancelled" after 30 minutes.
       #
-      # Raising testTimeout to 30s treated the symptom. Isolating the fake-timer test into its
-      # own file (548a5d2) treated a different symptom. Neither removed the contention, which
-      # is the actual cause — and adding `expo export` to `build` made it materially worse:
-      # four more Metro bundlers (two apps x android+ios) in the same parallel batch as the
-      # React Native suite they were starving.
+      # None of that is a bug in the tests. `turbo run test` starts EVERY workspace's suite at
+      # once — eight runners, each with its own worker pool, on a four-core runner — and the
+      # React Native suite, which mounts the whole app once per test, is the one that loses.
+      # `turbo run lint typecheck test build` made it worse still by adding two Next builds and
+      # (once `expo export` became the mobile `build`) four Metro bundlers to the same batch.
       #
-      # Running the builds first and the tests second costs a minute of wall clock and gives
-      # jest an uncontended machine, which is the condition its timeouts were written for.
+      # So: builds finish first, then the suites run serially. That is the condition
+      # jest.config.js's 30s testTimeout was actually written for — see its own long note,
+      # which describes this failure and reaches for a bigger timeout instead of the cause.
+      # Raising testTimeout treated the symptom; isolating the fake-timer test into its own
+      # file (548a5d2) treated a different symptom. Neither removed the contention.
       #
-      # `!cancelled()` rather than a plain sequential step: a lint or build failure above must
-      # not stop the tests from reporting, or the "every problem in one run" property that
-      # `--continue` exists for is lost at the step boundary instead of inside turbo.
+      # Raise --concurrency only with evidence. If the suites grow enough that serial is
+      # genuinely too slow, 2 is the next step, not deleting the flag.
+      #
+      # `!cancelled()` so a build failure above does not stop the tests reporting — otherwise
+      # the "every problem in one run" property that `--continue` exists for is lost at the
+      # step boundary instead of inside turbo.
+      #
+      # timeout-minutes here and on the step above, because the JOB ceiling is the wrong place
+      # to catch a hang: it burns the full 30 minutes and then reports "cancelled", which reads
+      # like a person cancelled it rather than like a bug. That is the same misdiagnosis the
+      # e2e job's comment describes. A step ceiling names the step that hung.
       - name: Test
         if: ${{ !cancelled() }}
-        run: pnpm turbo run test
+        timeout-minutes: 15
+        run: pnpm turbo run test --concurrency=1
 
       # `exports`/`files` paths must resolve. Catches the phantom-subpath class of bug that
       # shipped in @forge/theme. Lives HERE rather than in `guardrails` because it needs
@@ -415,14 +426,21 @@ jobs:
           --health-retries 10
 
     env:
-      # Uncompressed ceiling for the runtime image. The number is a regression guard, not a
-      # target: the failure it exists to catch shipped at 805 MB. A correctly pruned image
-      # measures ~90 MB today, so 250 leaves room for real dependency growth while still
-      # catching a build stage leaking into the runtime one by an order of magnitude.
+      # Ceiling for the runtime image, in UNCOMPRESSED megabytes as this runner reports them.
+      # The number is a regression guard, not a target: the failure it exists to catch shipped
+      # at 805 MB. A correctly pruned image measures 320 MB here, so 450 leaves real headroom
+      # while still catching a build stage leaking into the runtime one.
+      #
+      # DO NOT recalibrate this from a local `docker image inspect`. Docker Desktop defaults to
+      # the containerd image store, where `.Size` reports the COMPRESSED size — the same image
+      # that is 320 MB on this runner reads as 90 MB there, a 3.5x understatement, and a
+      # ceiling set from that number fails every build on CI. That is not hypothetical; it is
+      # why this line was briefly 250. `docker history` sums the real layer sizes if you need
+      # to check locally.
       #
       # The actual size is printed on every run. If a real dependency pushes past this, raise
       # the line deliberately in a reviewed diff — never delete the check.
-      MAX_IMAGE_MB: '250'
+      MAX_IMAGE_MB: '450'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -491,23 +509,33 @@ jobs:
       # ─── Static assertions about the artefact ─────────────────────────────────────────
       - name: Assert image invariants
         run: |
-          set -euo pipefail
+          set -uo pipefail
+
+          # Every assertion below records its verdict and NONE of them exit early, so one run
+          # reports every problem with the image. The first version of this step exited on the
+          # size check, which meant a wrong ceiling hid the four assertions after it and cost a
+          # full CI round trip to learn the next thing. Same reasoning as validateEnv() in
+          # env.schema.ts: reporting one failure at a time is a slow loop, and it is always
+          # entered under pressure.
+          failed=0
 
           bytes="$(docker image inspect forge-api:ci --format '{{.Size}}')"
           mb=$(( bytes / 1024 / 1024 ))
           echo "runtime image size: ${mb} MB (ceiling ${MAX_IMAGE_MB} MB)"
           if [ "$mb" -gt "$MAX_IMAGE_MB" ]; then
-            echo "::error::image is ${mb} MB, over the ${MAX_IMAGE_MB} MB ceiling — a build toolchain has almost certainly leaked into the runtime stage"
-            exit 1
+            echo "::error::image is ${mb} MB, over the ${MAX_IMAGE_MB} MB ceiling — either a build stage leaked into the runtime one, or the ceiling was recalibrated from a compressed local measurement (see MAX_IMAGE_MB)"
+            failed=1
           fi
 
           # The Dockerfile drops to USER node. A root container is one escape away from a
           # root host process, and this is the check that keeps that line honest.
           uid="$(docker run --rm forge-api:ci id -u | tr -d '\r')"
           if [ "$uid" = "0" ]; then
-            echo "::error::image runs as root"; exit 1
+            echo "::error::image runs as root"
+            failed=1
+          else
+            echo "runs as uid ${uid}"
           fi
-          echo "runs as uid ${uid}"
 
           # The runtime dependency tree, asserted in BOTH directions.
           #
@@ -548,23 +576,33 @@ jobs:
           if [ "$fail" -eq 0 ]; then echo "runtime tree is exactly what it should be"; fi
           exit "$fail"
           ASSERT
+          if [ $? -ne 0 ]; then
+            echo "::error::the runtime dependency tree is wrong — see LEAKED/MISSING above"
+            failed=1
+          fi
 
           # TZ=UTC is not cosmetic. Every business-day boundary is derived by converting UTC
           # into Asia/Kolkata explicitly, so a container already in local time double-shifts
           # and silently corrupts daily metrics for late-opening branches.
           offset="$(docker run --rm forge-api:ci node -e 'process.stdout.write(String(new Date().getTimezoneOffset()))')"
           if [ "$offset" != "0" ]; then
-            echo "::error::container timezone is not UTC (offset ${offset})"; exit 1
+            echo "::error::container timezone is not UTC (offset ${offset})"
+            failed=1
+          else
+            echo "timezone is UTC"
           fi
-          echo "timezone is UTC"
 
           # A HEALTHCHECK is what lets an orchestrator replace a wedged container. Losing it
           # is silent: the container simply never reports unhealthy again.
           if ! docker image inspect forge-api:ci \
               --format '{{if .Config.Healthcheck}}ok{{end}}' | grep -q ok; then
-            echo "::error::image declares no HEALTHCHECK"; exit 1
+            echo "::error::image declares no HEALTHCHECK"
+            failed=1
+          else
+            echo "HEALTHCHECK present"
           fi
-          echo "HEALTHCHECK present"
+
+          exit "$failed"
 
       # ─── Boot the real thing ──────────────────────────────────────────────────────────
       # Reuses the same connection strings as the e2e job rather than restating them, so the
