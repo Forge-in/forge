@@ -69,7 +69,7 @@
     "typescript": "catalog:"
   },
   "_jest": [
-    "Unit tests only — no database, no Redis, no network. These run in the `verify` CI job.",
+    "Unit tests only — no database, no Redis, no network. `pnpm test` runs these.",
     "rootDir is the app root (was 'src', which made apps/api/test/** unreachable, so the",
     "e2e spec in this repo had never once executed). testRegex '.spec.ts' is disjoint from",
     "the '-spec.ts' suffix used by int/e2e specs, so they never leak into this run.",

@@ -5,6 +5,7 @@ import { v1 } from '@forge/shared';
 import { redirect } from 'next/navigation';
 
 import { serverApi } from '../../lib/api';
+import { safeDestination } from '../../lib/redirect';
 import { writeSession } from '../../lib/session';
 
 /**
@@ -83,6 +84,15 @@ export async function verifyOtp(_previous: FormState, formData: FormData): Promi
   const phone = String(formData.get('phone') ?? '');
   const otp = String(formData.get('otp') ?? '').trim();
 
+  /**
+   * Where the proxy was trying to send them before sign-in interrupted.
+   *
+   * Read through `safeDestination`, which rejects anything that is not a local
+   * path — this value reaches us from the query string, so without that check
+   * the login screen is an open redirect with the real domain in front of it.
+   */
+  const next = safeDestination(String(formData.get('next') ?? ''));
+
   const parsed = v1.verifyOtpBody.safeParse({ phone, otp });
 
   if (!parsed.success) {
@@ -118,5 +128,5 @@ export async function verifyOtp(_previous: FormState, formData: FormData): Promi
 
   // redirect() throws internally, so it must sit outside the try/catch above — otherwise the
   // control-flow exception is caught and reported to the user as a failure.
-  redirect('/');
+  redirect(next);
 }

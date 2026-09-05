@@ -1,0 +1,165 @@
+import type { Member } from './types';
+
+/**
+ * The member roll.
+ *
+ * Twelve of the gym's 412 members — the page one an owner would actually see,
+ * covering every status the table has to render. `MEMBER_TOTAL` is the real
+ * count, kept separate so the "12 of 412" footer cannot drift from the roll.
+ */
+
+export const MEMBER_TOTAL = 412;
+
+export const MEMBERS: readonly Member[] = [
+  {
+    id: 'm-aarav-shah',
+    name: 'Aarav Shah',
+    phone: '98204 11238',
+    plan: 'Quarterly · Gym + Cardio',
+    planMeta: 'till 14 Oct 2026',
+    status: 'Active',
+    attendance: 86,
+    due: 0,
+    dueMeta: 'paid 14 Jul',
+    lastSeen: 'Today 7:12 AM',
+  },
+  {
+    id: 'm-priya-nair',
+    name: 'Priya Nair',
+    phone: '99678 40921',
+    plan: 'Monthly · Gym',
+    planMeta: 'expired 29 Jul',
+    status: 'Overdue',
+    attendance: 41,
+    due: 2300,
+    dueMeta: '21 days overdue',
+    lastSeen: '18 days ago',
+  },
+  {
+    id: 'm-kabir-rao',
+    name: 'Kabir Rao',
+    phone: '90045 77310',
+    plan: 'Annual · All access',
+    planMeta: 'till 3 Mar 2027',
+    status: 'Active',
+    attendance: 92,
+    due: 0,
+    dueMeta: 'paid 3 Mar',
+    lastSeen: 'Today 6:04 AM',
+  },
+  {
+    id: 'm-ishita-menon',
+    name: 'Ishita Menon',
+    phone: '98675 22084',
+    plan: 'Monthly · Gym + Group',
+    planMeta: 'ends 22 Aug',
+    status: 'Expiring',
+    attendance: 74,
+    due: 2600,
+    dueMeta: 'due in 3 days',
+    lastSeen: 'Yesterday',
+  },
+  {
+    id: 'm-devansh-gupta',
+    name: 'Devansh Gupta',
+    phone: '97021 66540',
+    plan: 'Monthly + PT (12)',
+    planMeta: 'PT 4 of 12 used',
+    status: 'Overdue',
+    attendance: 58,
+    due: 5600,
+    dueMeta: '4 days overdue',
+    lastSeen: '5 days ago',
+  },
+  {
+    id: 'm-rohit-verma',
+    name: 'Rohit Verma',
+    phone: '96543 90012',
+    plan: 'Trial · 7 day',
+    planMeta: 'day 2 of 7',
+    status: 'Trial',
+    attendance: 50,
+    due: 0,
+    dueMeta: 'converts 24 Aug',
+    lastSeen: 'Today 8:40 AM',
+  },
+  {
+    id: 'm-sana-qureshi',
+    name: 'Sana Qureshi',
+    phone: '93728 55617',
+    plan: 'Half-yearly · Gym',
+    planMeta: 'frozen till 2 Sep',
+    status: 'Frozen',
+    // Zero, not low: the membership is held, so the meter reads "paused".
+    attendance: 0,
+    due: 0,
+    dueMeta: 'medical hold',
+    lastSeen: '12 days ago',
+  },
+  {
+    id: 'm-arjun-pillai',
+    name: 'Arjun Pillai',
+    phone: '88907 41266',
+    plan: 'Monthly · Gym',
+    planMeta: 'ID proof missing',
+    status: 'Unverified',
+    attendance: 33,
+    due: 2300,
+    dueMeta: 'blocked at desk',
+    lastSeen: '2 days ago',
+  },
+  {
+    id: 'm-meera-iyer',
+    name: 'Meera Iyer',
+    phone: '99303 18845',
+    plan: 'Quarterly · Gym + Group',
+    planMeta: 'till 8 Nov 2026',
+    status: 'Active',
+    attendance: 78,
+    due: 0,
+    dueMeta: 'paid 8 Aug',
+    lastSeen: 'Today 6:52 PM',
+  },
+  {
+    id: 'm-tanvi-desai',
+    name: 'Tanvi Desai',
+    phone: '90210 77394',
+    plan: 'Annual + PT (24)',
+    planMeta: 'PT 19 of 24 used',
+    status: 'Active',
+    attendance: 88,
+    due: 0,
+    dueMeta: 'paid 12 Jan',
+    lastSeen: 'Today 7:30 PM',
+  },
+  {
+    id: 'm-yash-kulkarni',
+    name: 'Yash Kulkarni',
+    phone: '97655 20117',
+    plan: 'Monthly · Gym',
+    planMeta: 'ends 31 Aug',
+    status: 'Active',
+    attendance: 64,
+    due: 2300,
+    dueMeta: 'due in 12 days',
+    lastSeen: '3 days ago',
+  },
+  {
+    id: 'm-neha-bhatt',
+    name: 'Neha Bhatt',
+    phone: '98191 63402',
+    plan: 'Quarterly · Cardio',
+    planMeta: 'ends 12 Sep',
+    status: 'Active',
+    attendance: 71,
+    due: 6300,
+    dueMeta: 'due in 24 days',
+    lastSeen: 'Yesterday',
+  },
+];
+
+/**
+ * Below this, a member is treated as a churn risk and their attendance meter
+ * turns warn. 45% of the rolling 30 days is roughly "stopped coming weekly".
+ */
+export const CHURN_RISK_THRESHOLD = 45;

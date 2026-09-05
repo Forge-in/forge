@@ -1,0 +1,657 @@
+/* =============================================================================
+ * Wrath Owner Console — design system
+ * -----------------------------------------------------------------------------
+ * The owner dashboard's entire visual language: palette, typography, structural
+ * primitives and motion. Components must never hard-code a hex value, a font
+ * stack or a shadow — if a value is missing, add a token here.
+ *
+ * WHY THIS IS NOT `@forge/theme`. That package is Wrath *Core*, the platform
+ * console we operate: a flat, square, hairline-drawn surface on a cool grey
+ * canvas. The owner console is a different product sold to a different person —
+ * warm canvas, 24-26px radii, drop shadows, and a gold ramp carrying meaning
+ * (spend, capacity, occupancy) that Core has no use for. Folding these tokens
+ * into the shared package would make every Core screen inherit a palette it
+ * does not use, and `@forge/theme` says in its own header that nothing in it is
+ * app-specific. The two systems share their *fonts*, which is where the family
+ * resemblance comes from, and nothing else.
+ *
+ * Layout of this file
+ *   1. Palette         — raw `--ow-*` custom properties, per colour scheme
+ *   2. Metrics         — chrome sizes, motion
+ *   3. Tailwind bridge — `@theme inline` maps `--ow-*` onto utility classes
+ *   4. Base            — element defaults, scrollbars, focus, reduced motion
+ *   5. Type roles      — every recurring typographic treatment
+ *   6. Primitives      — card, field, pill, meter, avatar, gold fills
+ *   7. Motion          — the three keyframes the design uses
+ *
+ * Colour-scheme contract: `<html>` carries `data-owner-theme="dark" | "light"`.
+ * Dark is the default and also the no-JS fallback.
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 1. Palette
+ * ------------------------------------------------------------------------ */
+
+:root,
+[data-owner-theme='dark'] {
+  --ow-bg: #0a0f17;
+  --ow-surface: #111925;
+  --ow-raise: #1b2533;
+  --ow-line: #1a2331;
+  --ow-line-strong: #2a3547;
+
+  --ow-muted: #6e7a8a;
+  --ow-sub: #9aa5b4;
+  --ow-ink: #f4f1ea;
+
+  --ow-gold: #dcc9a0;
+  --ow-gold-lt: #f0e3c4;
+  --ow-gold-dk: #b99a5e;
+  --ow-gold-soft: rgb(228 211 172 / 0.14);
+  --ow-on-gold: #0a0f17;
+
+  --ow-warn: #c97a4a;
+  --ow-warn-soft: rgb(201 122 74 / 0.14);
+  --ow-ok: #7fa88a;
+  --ow-ok-soft: rgb(127 168 138 / 0.14);
+
+  --ow-glow: rgb(220 201 160 / 0.16);
+  --ow-gold-glow: rgb(220 201 160 / 0.26);
+  --ow-shadow: rgb(2 5 10 / 0.8);
+  --ow-shadow-soft: rgb(2 5 10 / 0.55);
+  --ow-scrim: rgb(4 7 12 / 0.72);
+
+  /*
+   * The footfall heat ramp. Four steps plus `--ow-line` at the bottom and
+   * `--ow-gold` at the top, so a cell is always readable against the card it
+   * sits on — a single opacity scale would vanish into the surface in light.
+   */
+  --ow-ramp-1: rgb(220 201 160 / 0.14);
+  --ow-ramp-2: rgb(220 201 160 / 0.3);
+  --ow-ramp-3: rgb(220 201 160 / 0.5);
+  --ow-ramp-4: rgb(220 201 160 / 0.72);
+
+  color-scheme: dark;
+}
+
+[data-owner-theme='light'] {
+  --ow-bg: #f5f1ea;
+  --ow-surface: #ffffff;
+  --ow-raise: #f0ebe1;
+  --ow-line: #eae4d9;
+  --ow-line-strong: #ded8cc;
+
+  --ow-muted: #6e6656;
+  --ow-sub: #55503f;
+  --ow-ink: #1a1712;
+
+  --ow-gold: #8f6f26;
+  --ow-gold-lt: #be9548;
+  --ow-gold-dk: #5c4413;
+  --ow-gold-soft: rgb(143 111 38 / 0.14);
+  --ow-on-gold: #fff9ec;
+
+  --ow-warn: #9a4e1e;
+  --ow-warn-soft: rgb(154 78 30 / 0.12);
+  --ow-ok: #3f6b4f;
+  --ow-ok-soft: rgb(63 107 79 / 0.12);
+
+  --ow-glow: rgb(124 95 31 / 0.1);
+  --ow-gold-glow: rgb(124 95 31 / 0.2);
+  --ow-shadow: rgb(60 50 32 / 0.18);
+  --ow-shadow-soft: rgb(60 50 32 / 0.1);
+  --ow-scrim: rgb(40 34 24 / 0.5);
+
+  /* Inverted weighting: on white, a 14% wash reads as nothing at all. */
+  --ow-ramp-1: rgb(143 111 38 / 0.32);
+  --ow-ramp-2: rgb(143 111 38 / 0.48);
+  --ow-ramp-3: rgb(143 111 38 / 0.64);
+  --ow-ramp-4: rgb(143 111 38 / 0.82);
+
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Metrics, type stacks and motion
+ *
+ * Families resolve through `next/font` CSS variables and fall back to the plain
+ * family name, so this stylesheet also works without the font loader.
+ * ------------------------------------------------------------------------ */
+
+:root {
+  --ow-font-sans:
+    var(--font-archivo, 'Archivo'), ui-sans-serif, system-ui, 'Helvetica Neue', Helvetica,
+    sans-serif;
+  --ow-font-serif:
+    var(--font-instrument-serif, 'Instrument Serif'), Georgia, 'Times New Roman', serif;
+  --ow-font-mono:
+    var(--font-jetbrains-mono, 'JetBrains Mono'), ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --ow-sidebar-w: 252px;
+  --ow-topbar-h: 78px;
+  --ow-rail-w: 372px;
+
+  --ow-ease: cubic-bezier(0.2, 0, 0.13, 1);
+  --ow-duration: 160ms;
+  --ow-duration-slow: 240ms;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Tailwind bridge
+ *
+ * `inline` is deliberate: generated utilities reference `var(--ow-*)` directly,
+ * so flipping `data-owner-theme` re-themes the whole tree with no rebuild and
+ * no second set of `dark:` variants to keep in sync.
+ * ------------------------------------------------------------------------ */
+
+@theme inline {
+  --color-bg: var(--ow-bg);
+  --color-surface: var(--ow-surface);
+  --color-raise: var(--ow-raise);
+  --color-line: var(--ow-line);
+  --color-line-strong: var(--ow-line-strong);
+
+  --color-muted: var(--ow-muted);
+  --color-sub: var(--ow-sub);
+  --color-ink: var(--ow-ink);
+
+  --color-gold: var(--ow-gold);
+  --color-gold-lt: var(--ow-gold-lt);
+  --color-gold-dk: var(--ow-gold-dk);
+  --color-gold-soft: var(--ow-gold-soft);
+  --color-on-gold: var(--ow-on-gold);
+
+  --color-warn: var(--ow-warn);
+  --color-warn-soft: var(--ow-warn-soft);
+  --color-ok: var(--ow-ok);
+  --color-ok-soft: var(--ow-ok-soft);
+
+  --color-scrim: var(--ow-scrim);
+
+  --font-sans: var(--ow-font-sans);
+  --font-serif: var(--ow-font-serif);
+  --font-mono: var(--ow-font-mono);
+
+  --spacing-sidebar: var(--ow-sidebar-w);
+  --spacing-topbar: var(--ow-topbar-h);
+  --spacing-rail: var(--ow-rail-w);
+
+  --ease-ow: var(--ow-ease);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Base
+ * ------------------------------------------------------------------------ */
+
+@layer base {
+  html {
+    background-color: var(--ow-bg);
+  }
+
+  body {
+    background-color: var(--ow-bg);
+    color: var(--ow-ink);
+    font-family: var(--ow-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Form controls do not inherit the family through the Tailwind reset. */
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+  }
+
+  ::placeholder {
+    color: var(--ow-muted);
+    opacity: 1;
+  }
+
+  ::selection {
+    background-color: var(--ow-gold);
+    color: var(--ow-on-gold);
+  }
+
+  * {
+    scrollbar-color: var(--ow-line-strong) transparent;
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border-radius: 5px;
+    background-color: var(--ow-line-strong);
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+
+  /*
+   * The source design has no focus rings at all. Keyboard and switch users need
+   * one, so the system adds a gold ring that reads as part of the aesthetic
+   * rather than as a browser default bolted on.
+   */
+  :focus-visible {
+    outline: 2px solid var(--ow-gold);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Type roles
+ *
+ * Named here so a component picks a role rather than re-deriving a font stack.
+ * Colour stays at the call site wherever it varies with state; these rules live
+ * in the components layer, so a `text-*` utility always wins.
+ * ------------------------------------------------------------------------ */
+
+@layer components {
+  /* — Mono, uppercase, tracked —————————————————————————————— */
+
+  /* Metric and field labels: "Revenue · Aug", "Full name". */
+  .t-eyebrow {
+    font-family: var(--ow-font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ow-muted);
+  }
+
+  /* Form field labels — the same face, tracked a touch tighter. */
+  .t-field-label {
+    font-family: var(--ow-font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ow-muted);
+  }
+
+  /* Table column headers. */
+  .t-colhead {
+    font-family: var(--ow-font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ow-muted);
+  }
+
+  /* Sidebar group headings: "Operate", "Money". */
+  .t-nav-group {
+    font-family: var(--ow-font-mono);
+    font-size: 8px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ow-muted);
+  }
+
+  /* Buttons, chips and segmented controls in chrome. */
+  .t-pill {
+    font-family: var(--ow-font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Row-level actions — one notch down from `.t-pill`. */
+  .t-pill-sm {
+    font-family: var(--ow-font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Status badges. */
+  .t-tag {
+    font-family: var(--ow-font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .t-tag-xs {
+    font-family: var(--ow-font-mono);
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Inline text links in a card header: "Full schedule". */
+  .t-link {
+    font-family: var(--ow-font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* — Mono, untracked ——————————————————————————————————————— */
+
+  .t-mono-3xs {
+    font-family: var(--ow-font-mono);
+    font-size: 8px;
+  }
+
+  .t-mono-2xs {
+    font-family: var(--ow-font-mono);
+    font-size: 8.5px;
+  }
+
+  .t-mono-xs {
+    font-family: var(--ow-font-mono);
+    font-size: 9px;
+  }
+
+  .t-mono-sm {
+    font-family: var(--ow-font-mono);
+    font-size: 9.5px;
+  }
+
+  .t-mono {
+    font-family: var(--ow-font-mono);
+    font-size: 10px;
+  }
+
+  .t-mono-md {
+    font-family: var(--ow-font-mono);
+    font-size: 10.5px;
+  }
+
+  .t-mono-lg {
+    font-family: var(--ow-font-mono);
+    font-size: 11px;
+  }
+
+  .t-mono-xl {
+    font-family: var(--ow-font-mono);
+    font-size: 12px;
+  }
+
+  /* — Sans body ——————————————————————————————————————————— */
+
+  .t-xs {
+    font-size: 12px;
+  }
+
+  .t-sm {
+    font-size: 12.5px;
+  }
+
+  .t-base {
+    font-size: 13px;
+  }
+
+  .t-body {
+    font-size: 13.5px;
+  }
+
+  .t-md {
+    font-size: 14px;
+  }
+
+  /* Card headings: "Needs your attention". */
+  .t-section {
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+
+  .t-section-sm {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .t-section-lg {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* — Serif numerals and titles ——————————————————————————— */
+
+  /*
+   * Every large figure in the console is Instrument Serif. The size varies with
+   * context, so the role sets the family and the optical line-height and leaves
+   * the size to the call site.
+   */
+  .t-display {
+    font-family: var(--ow-font-serif);
+    font-weight: 400;
+    line-height: 0.9;
+  }
+
+  /* Page title in the top bar, and modal titles. */
+  .t-title {
+    font-family: var(--ow-font-serif);
+    font-weight: 400;
+    font-size: 26px;
+    line-height: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Primitives
+ * ------------------------------------------------------------------------ */
+
+@layer components {
+  /* The console's standard panel. */
+  .ow-card {
+    border-radius: 26px;
+    background-color: var(--ow-surface);
+    border: 1px solid var(--ow-line);
+    box-shadow: 0 10px 30px var(--ow-shadow-soft);
+  }
+
+  /* KPI tiles sit one step tighter than a panel. */
+  .ow-tile {
+    border-radius: 24px;
+    background-color: var(--ow-surface);
+    border: 1px solid var(--ow-line);
+    box-shadow: 0 10px 30px var(--ow-shadow-soft);
+  }
+
+  /* A card whose border carries the alert. */
+  .ow-card-warn {
+    border-color: var(--ow-warn);
+  }
+
+  .ow-card-gold {
+    border-color: var(--ow-gold);
+  }
+
+  .ow-inset {
+    border-radius: 18px;
+    background-color: var(--ow-raise);
+    border: 1px solid var(--ow-line);
+  }
+
+  /* Hairline that divides stacked rows inside a card. */
+  .ow-divide {
+    border-top: 1px solid var(--ow-line);
+  }
+
+  .ow-divide-b {
+    border-bottom: 1px solid var(--ow-line);
+  }
+
+  /* The gold ramp, used for fills that mean "more". */
+  .ow-gold-fill {
+    background-image: linear-gradient(90deg, var(--ow-gold-lt), var(--ow-gold-dk));
+  }
+
+  .ow-gold-fill-v {
+    background-image: linear-gradient(180deg, var(--ow-gold-lt), var(--ow-gold-dk));
+  }
+
+  /* Primary button surface. */
+  .ow-gold-cta {
+    background-image: linear-gradient(
+      135deg,
+      var(--ow-gold-lt) 0%,
+      var(--ow-gold) 52%,
+      var(--ow-gold-dk) 100%
+    );
+    color: var(--ow-on-gold);
+    box-shadow: 0 10px 26px var(--ow-gold-glow);
+  }
+
+  /* Ring around an avatar or logo mark. */
+  .ow-ring {
+    background-image: linear-gradient(140deg, var(--ow-gold-lt) 0%, var(--ow-gold-dk) 100%);
+  }
+
+  /* Text inputs, selects and textareas. */
+  .ow-field {
+    border-radius: 14px;
+    background-color: var(--ow-raise);
+    border: 1px solid var(--ow-line-strong);
+    color: var(--ow-ink);
+    font-size: 13px;
+    padding-inline: 14px;
+    transition:
+      border-color var(--ow-duration) var(--ow-ease),
+      background-color var(--ow-duration) var(--ow-ease);
+  }
+
+  .ow-field:hover:not(:disabled) {
+    border-color: var(--ow-gold-soft);
+  }
+
+  .ow-field[aria-invalid='true'] {
+    border-color: var(--ow-warn);
+  }
+
+  /* Anything clickable that is not a filled button. */
+  .ow-hoverable {
+    transition:
+      color var(--ow-duration) var(--ow-ease),
+      background-color var(--ow-duration) var(--ow-ease),
+      border-color var(--ow-duration) var(--ow-ease),
+      opacity var(--ow-duration) var(--ow-ease);
+  }
+
+  .ow-hoverable:hover:not(:disabled) {
+    border-color: var(--ow-gold-soft);
+    color: var(--ow-gold);
+  }
+
+  .ow-hoverable:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  /* Filled buttons brighten rather than recolour. */
+  .ow-liftable {
+    transition:
+      filter var(--ow-duration) var(--ow-ease),
+      box-shadow var(--ow-duration) var(--ow-ease);
+  }
+
+  .ow-liftable:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+
+  .ow-liftable:disabled {
+    cursor: not-allowed;
+    filter: grayscale(0.4);
+    opacity: 0.6;
+  }
+
+  /* Initials bubble. */
+  .ow-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: var(--ow-raise);
+    font-family: var(--ow-font-mono);
+    color: var(--ow-sub);
+  }
+
+  /* Progress meter track — the fill is a child with an inline width. */
+  .ow-meter {
+    overflow: hidden;
+    border-radius: 9999px;
+    background-color: var(--ow-line-strong);
+  }
+
+  /*
+   * Scroll panes that must not show a bar: the sidebar and the modal body. The
+   * page's own scroller keeps its bar, because a long table with no visible
+   * scrollbar is a usability problem rather than a styling choice.
+   */
+  .ow-no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .ow-no-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Motion
+ * ------------------------------------------------------------------------ */
+
+@keyframes ow-pulse {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes ow-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes ow-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  /* The "live" dot on the sync chip, occupancy header and door feed. */
+  .ow-pulse {
+    animation: ow-pulse 2.2s ease-in-out infinite;
+  }
+
+  .ow-fade-in {
+    animation: ow-fade-in 0.18s ease-out;
+  }
+
+  .ow-toast-in {
+    animation: ow-toast-in 0.24s ease-out;
+  }
+}

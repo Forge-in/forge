@@ -204,9 +204,17 @@ pnpm dev         # all apps in parallel (turbo)
 pnpm lint        # read-only; pnpm lint:fix to apply fixes
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm build       # includes `expo export` for both mobile apps — see below
 pnpm format:check
+pnpm checks      # structural guardrails — see § 5
+pnpm audit:ci    # dependency advisory gate — see § 5
 ```
+
+`pnpm build` is not only the web apps. The Expo apps build with `expo export`, which is the
+only step that resolves the Metro module graph: `tsc --noEmit` type-checks files, but it will
+not notice a missing asset, a require of a package that is not a dependency, or a native-only
+module imported from shared code. None of those are type errors, and none of them failed
+anything until someone opened the app.
 
 `pnpm dev` ports — fixed rather than auto-assigned, so nothing races for 3000:
 
@@ -277,12 +285,77 @@ Local infra: Postgres `5432`, MinIO console http://localhost:9001
 in a `docker-compose.override.yml`, in which case `docker compose ps` is the
 source of truth.
 
+## 5. Checks you run yourself
+
+**This repository has no CI.** There is no GitHub Actions workflow, nothing runs on push, and
+nothing will tell you a branch is broken. Everything below is a command someone has to type.
+That is a deliberate trade, and the cost of it is that these are easy to forget — so the
+list is short and the umbrella command is one word.
+
+```bash
+pnpm checks        # structural guardrails (details below)
+pnpm audit:ci      # dependency advisories, gated by scripts/audit-allowlist.json
+pnpm lint:repo     # files outside every workspace, which `turbo run lint` cannot reach
+pnpm format:check  # repo-wide Prettier
+```
+
+`pnpm checks` runs four scripts. Run `pnpm build` first if you want the second one to verify
+`dist/` targets instead of skipping them.
+
+| script                         | catches                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `check-workspace-scripts.mjs`  | a workspace with no `test`/`lint`/`typecheck`, so `turbo run` skips it silently                          |
+| `check-package-files.mjs`      | an `exports`/`files` path that does not resolve on disk                                                  |
+| `check-repo-hygiene.mjs`       | foreign lockfiles, orphan workspace folders, `.nvmrc` drifting from the Dockerfile, a non-exact pnpm pin |
+| `db/check-migration-drift.mjs` | a schema edit with no matching migration generated                                                       |
+
+### Before a release, or after touching the schema
+
+The database guarantees cannot be checked without a database. Bring infra up (`pnpm infra:up`),
+apply migrations, then:
+
+```bash
+# 1. Every tenant-scoped table has RLS. A table shipped without a policy has NO symptoms:
+#    no error, no warning, just a table every studio can read.
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f scripts/db/assert-tenancy.sql
+
+# 2. The migration actually reverses. Proves the PR checklist box rather than trusting it,
+#    and catches a down-migration that drops a policy the up-migration does not recreate.
+pnpm --filter @forge/db db:rollback
+psql "$SUPERUSER_URL" -tAc "select count(*) from pg_tables where schemaname='public'"  # expect 0
+pnpm --filter @forge/db db:migrate
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f scripts/db/assert-tenancy.sql
+
+# 3. Cross-tenant isolation, and the API end to end against real Postgres and Redis.
+pnpm turbo run test:int
+pnpm turbo run test:e2e
+```
+
+### The API image
+
+`apps/api/Dockerfile` is the deployable artefact and nothing verifies it automatically. Build
+it from the repo root, not from `apps/api`:
+
+```bash
+docker build -f apps/api/Dockerfile -t forge-api .
+```
+
+Worth knowing if you ever check its size: Docker Desktop defaults to the containerd image
+store, where `docker image inspect --format '{{.Size}}'` reports the COMPRESSED size — roughly
+90 MB for an image whose real uncompressed size is ~320 MB. `docker history` sums the actual
+layers. Migrations are a separate release step, run against the same image:
+
+```bash
+docker run --rm -e DATABASE_MIGRATION_URL=... forge-api node packages/db/dist/migrate.js
+```
+
 ## Conventions
 
 - **The tenant is the STUDIO, not the gym.** A studio is the business that buys Forge;
   gyms are its branches. Every tenant-scoped table has `studio_id`, Postgres RLS enforces
   it, and app code sets it from the verified JWT — never from client input. Enforced by
-  `scripts/db/assert-tenancy.sql`, which fails CI if a new table skips it.
+  `scripts/db/assert-tenancy.sql` — run it against a migrated database (§ 5); it has no
+  symptoms if you skip it.
 - **`gym_id` records where something happened, never who may see it.** A membership is
   sold at the studio, so an all-access chain pass is the default: filtering by
   `registered_gym_id` would silently turn it into a single-branch pass. Access is resolved
@@ -292,7 +365,7 @@ source of truth.
   `set_config(..., true)` inside a transaction — a plain `SET` would leak the tenant to the
   next request on that pooled connection.
 - **Schema changes = a migration**, with a matching file in `migrations/down/`. Never edit
-  the DB by hand. CI proves up → down → up on every PR.
+  the DB by hand. Prove up → down → up yourself before merging (§ 5).
 - **Roles/DTOs live in `packages/shared`.** Don't redefine them per app.
 - **Config presets live in `packages/*`.** If you find yourself editing the same
   tsconfig or ESLint rule in two apps, it belongs in a preset.

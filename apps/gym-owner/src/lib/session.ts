@@ -17,8 +17,7 @@ import { cookies } from 'next/headers';
  * dashboards.
  */
 
-const ACCESS_COOKIE = 'forge_at';
-const REFRESH_COOKIE = 'forge_rt';
+import { ACCESS_COOKIE, REFRESH_COOKIE } from './session-cookies';
 
 export interface SessionTokens {
   accessToken: string;
@@ -81,4 +80,5 @@ export async function clearSession(): Promise<void> {
   store.delete(REFRESH_COOKIE);
 }
 
+/** Re-exported so callers have one import for the whole session concern. */
 export { ACCESS_COOKIE, REFRESH_COOKIE };

@@ -1,0 +1,92 @@
+{
+  "_readme": [
+    "Triaged dependency advisories. Read by scripts/check-advisories.mjs — run it with",
+    "`pnpm audit:ci`. Nothing runs it for you: this repository has no CI, so the discipline",
+    "this file encodes is only as good as the habit of running the command.",
+    "",
+    "An entry here is NOT 'ignore this'. It is a dated, signed statement that the advisory",
+    "cannot reach anything we ship, plus a deadline for looking again. The gate fails if an",
+    "entry expires while the advisory is still present, and it also fails if an entry stops",
+    "matching anything — so once a dependency is upgraded, the entry MUST be deleted. That is",
+    "what stops this file from turning into the permanent mute that every ignore-list becomes.",
+    "",
+    "Fields, all required:",
+    "  id       GHSA identifier, exactly as reported by `pnpm audit --json`",
+    "  module   the package the advisory is against; cross-checked, so a copied id cannot",
+    "           silently keep covering a different package",
+    "  severity informational, for reading this file without running the audit",
+    "  reason   at least 40 characters saying why it is not exploitable HERE and what the",
+    "           plan is. Not 'transitive' — say what reaches it and what does not.",
+    "  url      the advisory, so the next person can re-read it rather than trust this line",
+    "  expires  YYYY-MM-DD, at most 183 days out (scripts/check-advisories.mjs MAX_TRIAGE_DAYS)",
+    "",
+    "Only `high` and `critical` need an entry. Lower severities are printed by the gate on",
+    "every run and do not block — see the BLOCKING comment in the script for why."
+  ],
+  "advisories": [
+    {
+      "id": "GHSA-gpj5-g38j-94v9",
+      "module": "drizzle-orm",
+      "severity": "high",
+      "reason": "REAL AND FIXABLE — do not renew this entry. SQL injection via improperly escaped identifiers in the ORM that fronts every tenant-scoped query, so this is the one advisory in this file that reaches production code. It is listed only to keep the gate meaningful while the upgrade lands: `pnpm --filter @forge/db up drizzle-orm@0.45.2`, then run the tenancy suite (test:int) because the identifier-escaping change touches generated SQL. Short expiry on purpose.",
+      "url": "https://github.com/advisories/GHSA-gpj5-g38j-94v9",
+      "expires": "2026-09-17"
+    },
+    {
+      "id": "GHSA-w3rx-r6r6-pgpr",
+      "module": "image-size",
+      "severity": "high",
+      "reason": "Denial of service via an infinite loop in the ICNS parser, reached only through metro, the React Native bundler. It runs on a developer machine and in the `expo export` build step, never in a shipped artifact, and the only images it parses are the ones committed to this repo. No fix has been released for any version, so there is nothing to upgrade to; the exit is a metro bump when Expo ships one.",
+      "url": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+      "expires": "2026-12-01"
+    },
+    {
+      "id": "GHSA-5p2g-fcmc-qvqq",
+      "module": "image-size",
+      "severity": "high",
+      "reason": "Same package, same path and same reasoning as GHSA-w3rx-r6r6-pgpr: infinite loops in the JXL and HEIF parsers inside metro's asset pipeline. Build-time only, inputs are our own committed assets, and no patched version exists. Tracked together with the ICNS advisory and cleared by the same metro upgrade.",
+      "url": "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+      "expires": "2026-12-01"
+    },
+    {
+      "id": "GHSA-2v37-7h3g-55p8",
+      "module": "nanoid",
+      "severity": "high",
+      "reason": "A custom generator called with size zero loops forever. Reached through next -> postcss, which is the CSS build pipeline: it executes during `next build`, never at request time, and no code in this repo calls nanoid at all, let alone with an attacker-controlled size. postcss pins the vulnerable range transitively, so the fix arrives with a Next.js release rather than a direct bump.",
+      "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8",
+      "expires": "2026-12-01"
+    },
+    {
+      "id": "GHSA-5jgf-p345-68v8",
+      "module": "fast-uri",
+      "severity": "high",
+      "reason": "Host confusion via skipped IDN canonicalisation. Reached only through @commitlint/cli -> ajv, which parses JSON Schema for commit-message linting: it runs on a developer's machine via the commit-msg hook and in the PR-title job, against our own commit titles. It is not a dependency of any application or of anything that reaches the runtime image. Cleared by an ajv release picking up fast-uri >= 3.1.6.",
+      "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8",
+      "expires": "2026-12-01"
+    },
+    {
+      "id": "GHSA-f65p-4m7j-42xc",
+      "module": "fast-uri",
+      "severity": "high",
+      "reason": "Server-side request forgery via malformed IPv6 normalisation, in the same commitlint -> ajv path as GHSA-5jgf-p345-68v8. Nothing in that path makes an outbound request, and the only input it ever sees is a commit message written by one of the two people with push access. Cleared by the same ajv upgrade.",
+      "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc",
+      "expires": "2026-12-01"
+    },
+    {
+      "id": "GHSA-fph4-wmhf-6fwf",
+      "module": "fast-uri",
+      "severity": "high",
+      "reason": "Server-side request forgery via repeated hostname percent-decoding, same commitlint -> ajv path and same reasoning as the other two fast-uri entries: lint-time only, trusted input, no outbound request anywhere on the path. Grouped so all four clear together on one ajv upgrade.",
+      "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf",
+      "expires": "2026-12-01"
+    },
+    {
+      "id": "GHSA-jqff-g426-hqxp",
+      "module": "fast-uri",
+      "severity": "high",
+      "reason": "Host confusion via percent-encoded scheme normalisation, the fourth advisory on the commitlint -> ajv path. Same containment: it is reached only while linting a commit message, never by the API, the web apps or the mobile apps, and never with untrusted input. Cleared by the same ajv upgrade as the other three.",
+      "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp",
+      "expires": "2026-12-01"
+    }
+  ]
+}
