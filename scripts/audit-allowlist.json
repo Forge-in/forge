@@ -1,7 +1,8 @@
 {
   "_readme": [
-    "Triaged dependency advisories. Read by scripts/check-advisories.mjs, which runs as the",
-    "`Dependency advisory gate` step of the Security job.",
+    "Triaged dependency advisories. Read by scripts/check-advisories.mjs — run it with",
+    "`pnpm audit:ci`. Nothing runs it for you: this repository has no CI, so the discipline",
+    "this file encodes is only as good as the habit of running the command.",
     "",
     "An entry here is NOT 'ignore this'. It is a dated, signed statement that the advisory",
     "cannot reach anything we ship, plus a deadline for looking again. The gate fails if an",
@@ -22,7 +23,6 @@
     "Only `high` and `critical` need an entry. Lower severities are printed by the gate on",
     "every run and do not block — see the BLOCKING comment in the script for why."
   ],
-
   "advisories": [
     {
       "id": "GHSA-gpj5-g38j-94v9",

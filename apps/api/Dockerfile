@@ -90,12 +90,16 @@ COPY --from=builder --chown=node:node /repo/packages/db/package.json ./packages/
 # resolves them relative to __dirname, which is why they must sit next to dist/.
 COPY --from=builder --chown=node:node /repo/packages/db/migrations ./packages/db/migrations
 
-# Build identity, stamped in by CI and reported back by /healthz. Declared LAST in this
-# stage on purpose: an ARG invalidates the cache for every layer after it, and these two
-# change on every single commit — placed any earlier they would re-run all the COPYs above.
+# Build identity, passed in at build time and reported back by /healthz. Declared LAST in
+# this stage on purpose: an ARG invalidates the cache for every layer after it, and these
+# two change on every commit — placed any earlier they would re-run all the COPYs above.
 #
-# Both default to "unknown", matching env.schema.ts, so a hand-built image still boots. It
-# just cannot answer "which build is on staging", which is the question these exist for.
+# Both default to "unknown", matching env.schema.ts, so an image built without them still
+# boots. It just cannot answer "which build is on staging", which is the question these
+# exist for, so pass them when you build something you intend to deploy:
+#   docker build -f apps/api/Dockerfile -t forge-api \
+#     --build-arg GIT_SHA="$(git rev-parse HEAD)" \
+#     --build-arg BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown
 ENV GIT_SHA=${GIT_SHA} \

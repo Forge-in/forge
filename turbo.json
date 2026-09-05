@@ -1,21 +1,21 @@
 {
   "$schema": "https://turbo.build/schema.json",
 
-  // `.env` is git-ignored, so it does not exist in CI. Listing it here meant local and CI
-  // could never share a cache entry, and every local secret tweak invalidated every task.
-  // `.env.example` is the committed contract, so hashing that is both meaningful and portable.
+  // `.env` is git-ignored, so it does not exist on a fresh clone. Listing it here meant two
+  // machines could never share a cache entry, and every local secret tweak invalidated every
+  // task. `.env.example` is the committed contract, so hashing that is meaningful and portable.
   "globalDependencies": [".env.example", ".nvmrc"],
   // turbo 2 defaults to strict env mode: a task sees ONLY what is listed here or in its own
-  // env/passThroughEnv. Anything the workflow exports and forgets to list simply never
+  // env/passThroughEnv. Anything your shell exports and this list forgets simply never
   // arrives — see the note on test:e2e below for what that failure looks like.
   //
   // passThroughEnv rather than globalEnv, deliberately: none of these change what a task
-  // PRODUCES, so mixing them into the cache key would only split the cache between CI and
-  // every laptop for no gain.
+  // PRODUCES, so mixing them into the cache key would only split the cache between machines
+  // for no gain.
   //
   // The telemetry flags are the reason this list grew. `next build` and `expo export` each
-  // phone home unless told not to, and the workflow-level `env:` block in ci.yml that sets
-  // them is inert without this line. scripts/check-repo-hygiene.mjs compares the two.
+  // phone home unless told not to, and exporting the opt-out in your shell does nothing
+  // unless it is named here — the flag is simply inert, and nothing reports that.
   "globalPassThroughEnv": [
     "CI",
     "TURBO_TOKEN",
@@ -71,15 +71,15 @@
         "LOG_LEVEL",
         "OTP_MAX_PER_PHONE",
         "OTP_MAX_PER_IP",
-        // The console keeps its own OTP buckets, so it needs its own headroom in CI for the
-        // same reason: every request there comes from 127.0.0.1, and the production per-IP
-        // default of 20 blocks the admin suite part-way through.
+        // The console keeps its own OTP buckets, so it needs its own headroom for the same
+        // reason: every request in a local run comes from 127.0.0.1, and the production
+        // per-IP default of 20 blocks the admin suite part-way through.
         //
         // Missing entries here fail in a genuinely confusing way. Turbo filters the
-        // environment, so a variable set in the workflow but absent from this list simply
-        // never reaches the process — the API silently falls back to its default and the
-        // symptom is a 429 in a test that has nothing to do with rate limiting. Running
-        // jest directly hides it completely, because that path bypasses turbo.
+        // environment, so a variable you exported but did not list simply never reaches the
+        // process — the API silently falls back to its default and the symptom is a 429 in
+        // a test that has nothing to do with rate limiting. Running jest directly hides it
+        // completely, because that path bypasses turbo.
         "ADMIN_OTP_MAX_PER_PHONE",
         "ADMIN_OTP_MAX_PER_IP",
         "THROTTLE_PER_SECOND",

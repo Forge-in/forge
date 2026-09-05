@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Guards against silent-green CI.
+ * Guards against a silent-green test run.
  *
  * `turbo run test` only runs the task in workspaces that DECLARE it. Before this script
  * existed, five of six workspaces had no `test` script, so `pnpm test` exercised a single
- * assertion against /health and exited 0 — CI reported success while testing essentially
- * nothing. The tests were added; this script is what stops the hole from reopening the
- * next time someone scaffolds an app (owner-mobile is already planned).
+ * assertion against /health and exited 0 — a green run that tested essentially nothing.
+ * The tests were added; this script is what stops the hole from reopening the next time
+ * someone scaffolds an app (owner-mobile is already planned).
  *
  * It also rejects placeholder scripts. A `"test": "echo ok"` is worse than no script at
  * all: turbo counts it as a passing task, so the gap becomes invisible instead of merely
@@ -25,9 +25,11 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const REQUIRED_ALWAYS = ['lint', 'typecheck', 'test'];
 
 /**
- * `build` is required for anything an app depends on at runtime or that CI must prove
- * compiles. It is the only real signal for the Next apps: `tsc --noEmit` does not catch
- * RSC boundary violations, bad "use client" placement, or invalid route exports.
+ * `build` is required for anything an app depends on at runtime, or anything whose only
+ * real compile signal is the build. That is the case for the Next apps: `tsc --noEmit`
+ * does not catch RSC boundary violations, bad "use client" placement, or invalid route
+ * exports. Same for the Expo apps, whose `build` is `expo export` — the only step that
+ * resolves the Metro module graph.
  */
 const REQUIRED_BUILD = [
   'apps/company-admin',
@@ -124,7 +126,7 @@ for (const ws of discoverWorkspaces()) {
     if (typeof scripts[script] !== 'string' || scripts[script].trim() === '') {
       problems.push(
         `${ws.rel} (${ws.manifest.name}) is missing a "${script}" script. ` +
-          `Without it, \`turbo run ${script}\` skips this workspace and CI passes regardless.`,
+          `Without it, \`turbo run ${script}\` skips this workspace and the run is green regardless.`,
       );
     }
   }

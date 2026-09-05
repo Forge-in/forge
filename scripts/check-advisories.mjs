@@ -17,7 +17,7 @@
  * revisits it, the justification is never written down, and two years later the file says
  * only that someone once decided not to care.
  *
- * So every entry in .github/audit-allowlist.json must carry a REASON and an EXPIRY, and
+ * So every entry in scripts/audit-allowlist.json must carry a REASON and an EXPIRY, and
  * this script fails on:
  *
  *   - an advisory at or above the threshold that is not in the file        (untriaged)
@@ -31,6 +31,10 @@
  *
  * Exit code 0 means: every advisory at or above the threshold is either absent or has a
  * written, in-date, still-relevant justification.
+ *
+ * Run it with `pnpm audit:ci`. Nothing runs it automatically — this repository has no CI —
+ * so it is worth running before a release and whenever the lockfile moves. The expiry dates
+ * in the allowlist are the only thing that will ever nag you, and only when you next run it.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -38,8 +42,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-const ALLOWLIST_PATH = join(repoRoot, '.github', 'audit-allowlist.json');
-const ALLOWLIST_REL = '.github/audit-allowlist.json';
+const ALLOWLIST_PATH = join(repoRoot, 'scripts', 'audit-allowlist.json');
+const ALLOWLIST_REL = 'scripts/audit-allowlist.json';
 
 /**
  * Severities that block a merge.
@@ -321,7 +325,7 @@ if (informational.length > 0) {
 
 // Both sections print before anything exits. Fixing an untriaged advisory only to discover
 // an expired triage on the next attempt is the slow loop env.schema.ts avoids for the same
-// reason: it usually happens under pressure, and each round trip is a full CI run.
+// reason: it usually happens under pressure, and each round trip is another full audit.
 if (blocking.length > 0) {
   console.error(`\n${blocking.length} UNTRIAGED advisory/advisories at or above threshold:\n`);
   for (const a of blocking) {

@@ -60,7 +60,8 @@
 # that cannot be force-updated instantly.
 /packages/shared/                   @Shivamt7 satyam.s.mishra.13@gmail.com
 
-# CI is what makes every other rule in this repo enforceable.
-/.github/                           @Shivamt7 satyam.s.mishra.13@gmail.com
+# The guardrail scripts. With no CI running them, a silent change here is a check that
+# quietly stops catching anything, and nothing anywhere would report it.
 /scripts/                           @Shivamt7 satyam.s.mishra.13@gmail.com
 /turbo.json                         @Shivamt7 satyam.s.mishra.13@gmail.com
+/.github/                           @Shivamt7 satyam.s.mishra.13@gmail.com

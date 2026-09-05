@@ -206,8 +206,8 @@ pnpm typecheck
 pnpm test
 pnpm build       # includes `expo export` for both mobile apps — see below
 pnpm format:check
-pnpm hygiene     # repo-shape invariants; same check CI runs
-pnpm audit:ci    # dependency advisory gate; same check CI runs
+pnpm checks      # structural guardrails — see § 5
+pnpm audit:ci    # dependency advisory gate — see § 5
 ```
 
 `pnpm build` is not only the web apps. The Expo apps build with `expo export`, which is the
@@ -285,57 +285,77 @@ Local infra: Postgres `5432`, MinIO console http://localhost:9001
 in a `docker-compose.override.yml`, in which case `docker compose ps` is the
 source of truth.
 
-## 5. CI
+## 5. Checks you run yourself
 
-Five jobs run on every pull request, plus one aggregator.
+**This repository has no CI.** There is no GitHub Actions workflow, nothing runs on push, and
+nothing will tell you a branch is broken. Everything below is a command someone has to type.
+That is a deliberate trade, and the cost of it is that these are easy to forget — so the
+list is short and the umbrella command is one word.
 
-| job               | what it proves                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `Verify`          | lint, typecheck, test and **build** across every workspace, plus repo-wide format and the package-path check |
-| `Guardrails`      | structural invariants: workspace scripts, repo hygiene, migration drift                                      |
-| `E2E and tenancy` | migrations up → down → up, RLS invariants, tenant isolation, API e2e — against real Postgres and Redis       |
-| `Security`        | committed-secret scan, and the dependency advisory gate                                                      |
-| `API image`       | builds `apps/api/Dockerfile`, boots it against real services, scans it, and publishes it from `main`         |
-| `CI`              | the single check to require in branch protection                                                             |
+```bash
+pnpm checks        # structural guardrails (details below)
+pnpm audit:ci      # dependency advisories, gated by scripts/audit-allowlist.json
+pnpm lint:repo     # files outside every workspace, which `turbo run lint` cannot reach
+pnpm format:check  # repo-wide Prettier
+```
 
-**Require only `CI` in branch protection.** It fails if any job above did not succeed. Naming
-the individual jobs there means a job you later rename becomes a check that never reports —
-and a job you later add protects nothing until someone edits repository settings.
+`pnpm checks` runs four scripts. Run `pnpm build` first if you want the second one to verify
+`dist/` targets instead of skipping them.
 
-A few things worth knowing before a red build surprises you:
+| script                         | catches                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `check-workspace-scripts.mjs`  | a workspace with no `test`/`lint`/`typecheck`, so `turbo run` skips it silently                          |
+| `check-package-files.mjs`      | an `exports`/`files` path that does not resolve on disk                                                  |
+| `check-repo-hygiene.mjs`       | foreign lockfiles, orphan workspace folders, `.nvmrc` drifting from the Dockerfile, a non-exact pnpm pin |
+| `db/check-migration-drift.mjs` | a schema edit with no matching migration generated                                                       |
 
-- **Every `uses:` is pinned to a commit SHA**, not a tag, and `pnpm hygiene` fails if one is
-  not. A tag is mutable, and CI holds a token, the registry credential and the whole source
-  tree. Dependabot keeps the pins current (`.github/dependabot.yml`), so this costs nothing
-  to maintain.
-- **The advisory gate is not `pnpm audit`.** It fails only on an advisory nobody has triaged,
-  on a triage that expired, and on a triage that no longer matches anything — so
-  `.github/audit-allowlist.json` cannot rot into a permanent mute. Every entry needs a
-  reason, a link and an expiry of at most 183 days. When you upgrade a dependency, **delete**
-  its entry; leaving it there is itself a failure.
-- **The e2e environment lives in `.github/ci/e2e.env`**, not in the workflow. turbo _filters_
-  the environment: a variable exported by the workflow but missing from `passThroughEnv` in
-  `turbo.json` never reaches the process, the API falls back to its default, and the symptom
-  is a 429 in a test that has nothing to do with rate limiting — invisible when you run jest
-  directly, because that path bypasses turbo. `pnpm hygiene` compares the two files so that
-  cannot happen silently.
-- **The image job publishes the exact bytes it tested.** It loads the build locally, asserts
-  the invariants the Dockerfile claims (non-root, no build tooling, UTC, under a size
-  ceiling, a HEALTHCHECK), runs the migrations from that image, boots it in
-  `NODE_ENV=production` against real Postgres and Redis, waits for `/readyz`, scans it, and
-  only then pushes to GHCR from `main`. Deploy by the digest it prints, not by a tag.
+### Before a release, or after touching the schema
 
-`CodeQL` and `PR title` are separate workflows: CodeQL runs on `main` and weekly rather than
-on every PR (its signal is real but noisy, and a scanner that comments on every PR gets muted
-within a month), and the PR-title check needs the `edited` trigger that `ci.yml` deliberately
-does not have.
+The database guarantees cannot be checked without a database. Bring infra up (`pnpm infra:up`),
+apply migrations, then:
+
+```bash
+# 1. Every tenant-scoped table has RLS. A table shipped without a policy has NO symptoms:
+#    no error, no warning, just a table every studio can read.
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f scripts/db/assert-tenancy.sql
+
+# 2. The migration actually reverses. Proves the PR checklist box rather than trusting it,
+#    and catches a down-migration that drops a policy the up-migration does not recreate.
+pnpm --filter @forge/db db:rollback
+psql "$SUPERUSER_URL" -tAc "select count(*) from pg_tables where schemaname='public'"  # expect 0
+pnpm --filter @forge/db db:migrate
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f scripts/db/assert-tenancy.sql
+
+# 3. Cross-tenant isolation, and the API end to end against real Postgres and Redis.
+pnpm turbo run test:int
+pnpm turbo run test:e2e
+```
+
+### The API image
+
+`apps/api/Dockerfile` is the deployable artefact and nothing verifies it automatically. Build
+it from the repo root, not from `apps/api`:
+
+```bash
+docker build -f apps/api/Dockerfile -t forge-api .
+```
+
+Worth knowing if you ever check its size: Docker Desktop defaults to the containerd image
+store, where `docker image inspect --format '{{.Size}}'` reports the COMPRESSED size — roughly
+90 MB for an image whose real uncompressed size is ~320 MB. `docker history` sums the actual
+layers. Migrations are a separate release step, run against the same image:
+
+```bash
+docker run --rm -e DATABASE_MIGRATION_URL=... forge-api node packages/db/dist/migrate.js
+```
 
 ## Conventions
 
 - **The tenant is the STUDIO, not the gym.** A studio is the business that buys Forge;
   gyms are its branches. Every tenant-scoped table has `studio_id`, Postgres RLS enforces
   it, and app code sets it from the verified JWT — never from client input. Enforced by
-  `scripts/db/assert-tenancy.sql`, which fails CI if a new table skips it.
+  `scripts/db/assert-tenancy.sql` — run it against a migrated database (§ 5); it has no
+  symptoms if you skip it.
 - **`gym_id` records where something happened, never who may see it.** A membership is
   sold at the studio, so an all-access chain pass is the default: filtering by
   `registered_gym_id` would silently turn it into a single-branch pass. Access is resolved
@@ -345,7 +365,7 @@ does not have.
   `set_config(..., true)` inside a transaction — a plain `SET` would leak the tenant to the
   next request on that pooled connection.
 - **Schema changes = a migration**, with a matching file in `migrations/down/`. Never edit
-  the DB by hand. CI proves up → down → up on every PR.
+  the DB by hand. Prove up → down → up yourself before merging (§ 5).
 - **Roles/DTOs live in `packages/shared`.** Don't redefine them per app.
 - **Config presets live in `packages/*`.** If you find yourself editing the same
   tsconfig or ESLint rule in two apps, it belongs in a preset.
